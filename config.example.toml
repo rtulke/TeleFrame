@@ -1,0 +1,84 @@
+# TeleFrame Configuration File
+# Configure your digital picture frame settings
+
+# Telegram Bot Settings
+bot_token = ""  			# Get from @BotFather
+whitelist_chats = [] 			# Add chat IDs to restrict access: [-123456789, 987654321]
+whitelist_admins = [] 			# Add admin chat IDs: [123456789]
+
+
+# Image Management
+image_folder = "images"          	# Folder to store received images
+image_count = 30                 	# Maximum number of images in slideshow rotation
+auto_delete_images = true        	# Automatically delete old images when limit reached
+show_videos = true               	# Display video files in slideshow
+	
+# Display Settings
+fullscreen = true               	# Run in fullscreen mode
+fade_time = 1500                    	# Fade transition time in milliseconds, default 1500
+interval = 10000                 	# Time each image is displayed in milliseconds (10 seconds)
+random_order = true              	# Show images in random order
+
+# UI Settings
+show_sender = true               	# Display sender name on images
+show_caption = true              	# Display image captions
+crop_zoom_images = false         	# Crop/zoom images to fill screen (vs letterbox)
+
+# Audio Settings
+play_sound_on_receive = "sound1.mp3"  	# Sound file to play when receiving images
+play_video_audio = false        	# Play audio when displaying videos
+
+# System Settings
+toggle_monitor = false           	# Automatically turn monitor on/off
+turn_on_hour = 9                 	# Hour to turn monitor on (24h format)
+turn_off_hour = 22               	# Hour to turn monitor off (24h format)
+
+# SDL/Display Configuration
+[sdl]
+# Video driver configuration for different Raspberry Pi setups
+videodriver = "kmsdrm"           	# Options: "kmsdrm" (modern Pi), "fbcon" (legacy), "x11" (desktop)
+audiodriver = "alsa"             	# Audio driver: "alsa", "pulse", "dummy"
+fbdev = "/dev/fb0"               	# Framebuffer device (only used with fbcon driver)
+nomouse = true                   	# Hide mouse cursor
+
+# Advanced SDL settings (optional)
+[sdl.extra_env]
+# SDL_VIDEODRIVER_OPTIONS = "fbcon"    	# Additional video driver options
+# SDL_FBDEV_MOUSE = "/dev/input/mice"  	# Mouse device for framebuffer
+# SDL_MOUSE_RELATIVE = "0"             	# Disable relative mouse mode
+
+# Security Settings
+max_file_size = 10485760		# 10MB or (50 mb = 52428800)
+allowed_file_types = [".jpg", ".jpeg", ".png", ".gif", ".mp4"]  # Allowed file extensions
+
+# Logging Configuration
+#log_level = "INFO"              	# Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+log_level = "DEBUG"              	# Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+# log_file = "logs/teleframe.log"  	# Uncomment to enable file logging
+
+# Hardware-specific configurations:
+#
+# Modern Raspberry Pi 4/5 with DRM/KMS:
+# [sdl]
+# videodriver = "kmsdrm"
+# audiodriver = "alsa"
+# nomouse = true
+#
+# Legacy Raspberry Pi or older systems:
+# [sdl]
+# videodriver = "fbcon"
+# audiodriver = "alsa"
+# fbdev = "/dev/fb0"
+# nomouse = true
+#
+# Desktop development/testing:
+# [sdl]
+# videodriver = "x11"
+# audiodriver = "pulse"
+# nomouse = false
+#
+# Headless testing:
+# [sdl]
+# videodriver = "dummy"
+# audiodriver = "dummy"
+# nomouse = true
