@@ -1,7 +1,7 @@
-# main.py - TeleFrame Python Robust Implementation
+# main.py - TeleFrame Python with Monitor Control - COMPLETE VERSION
 """
-TeleFrame - Digital Picture Frame with Telegram Bot
-Robust implementation with proper error handling and process management
+TeleFrame - Digital Picture Frame with Telegram Bot and Monitor Control
+Complete implementation with robust error handling and monitor management
 """
 
 import asyncio
@@ -27,14 +27,16 @@ import pygame
 from image_manager import ImageManager
 from slideshow import SlideshowDisplay
 from telegram_bot import TeleFrameBot
+from monitor_control import MonitorController  # NEW: Monitor control
 from logger import setup_logger, setup_security_logger
 
 
 class ProcessManager:
     """Handle process locking and cleanup"""
     
-    def __init__(self, app_name: str = "teleframe"):
+    def __init__(self, app_name: str = "teleframe", config=None):
         self.app_name = app_name
+        self.config = config  # FIXED: Add config parameter
         self.pid_file = Path(f"/tmp/{app_name}.pid")
         self.lock_file = Path(f"/tmp/{app_name}.lock")
         self.logger = logging.getLogger(f"{app_name}.process")
@@ -94,7 +96,7 @@ class ProcessManager:
 
 
 class TeleFrame:
-    """Main TeleFrame application class with robust error handling"""
+    """Main TeleFrame application class with monitor control"""
     
     def __init__(self, config_path: str = "config.toml"):
         # Use already loaded config or load new one
@@ -109,12 +111,13 @@ class TeleFrame:
         self.security_logger = setup_security_logger(Path("logs/security.log"))
         
         # Process management
-        self.process_manager = ProcessManager("teleframe")
+        self.process_manager = ProcessManager("teleframe", self.config)  # FIXED: Pass config
         
         # Initialize components
         self.image_manager = None
         self.display = None
         self.bot = None
+        self.monitor_controller = None  # NEW: Monitor controller
         
         # State
         self.running = False
@@ -195,7 +198,7 @@ class TeleFrame:
             await self._cleanup()
     
     async def _initialize_components(self):
-        """Initialize all components with error handling"""
+        """Initialize all components with monitor controller"""
         try:
             # Initialize image manager
             self.logger.info("📁 Initializing image manager...")
@@ -204,6 +207,10 @@ class TeleFrame:
             # Initialize display with retry logic
             self.logger.info("🖥️  Initializing display...")
             await self._init_display_with_retry()
+            
+            # NEW: Initialize monitor controller
+            self.logger.info("🖥️  Initializing monitor controller...")
+            self.monitor_controller = MonitorController(self.config)
             
             # Initialize bot if enabled
             if self.config.bot_token != "bot-disabled":
@@ -239,10 +246,11 @@ class TeleFrame:
                 await asyncio.sleep(2)  # Wait before retry
     
     async def _init_bot_with_retry(self, max_retries: int = 5):
-        """Initialize bot with retry logic for conflicts"""
+        """Initialize bot with monitor controller and retry logic"""
         for attempt in range(max_retries):
             try:
-                self.bot = TeleFrameBot(self.config, self.image_manager)
+                # NEW: Pass monitor controller to bot
+                self.bot = TeleFrameBot(self.config, self.image_manager, self.monitor_controller)
                 await self.bot.start()
                 self.logger.info("✅ Telegram bot started successfully")
                 return
@@ -305,6 +313,15 @@ class TeleFrame:
         if self.display:
             cleanup_tasks.append(self._cleanup_display_safely())
         
+        # NEW: Clean up monitor controller (synchronous)
+        if self.monitor_controller:
+            try:
+                # Log final monitor state
+                status = self.monitor_controller.get_status()
+                self.logger.info(f"🖥️  Final monitor state: {status['state']}")
+            except Exception as e:
+                self.logger.error(f"Error getting final monitor status: {e}")
+        
         # Execute all cleanup tasks with timeout
         if cleanup_tasks:
             try:
@@ -355,31 +372,53 @@ class TeleFrame:
         await self._cleanup_with_timeout()
     
     async def _main_loop(self):
-        """Main application loop with error recovery"""
+        """Main application loop with monitor control integration"""
         self.logger.info("🎬 Starting main loop...")
         
         clock = pygame.time.Clock()
         last_image_change = 0
+        last_monitor_check = 0  # FIXED: Initialize variable
+        monitor_check_interval = 60000  # Check every minute
         error_count = 0
         max_errors = 10
+        current_time = 0  # FIXED: Initialize variable
         
         while self.running and not self.shutdown_requested:
             try:
                 current_time = pygame.time.get_ticks()
                 
+                # NEW: Monitor control check (every minute)
+                if (self.monitor_controller and 
+                    (current_time - last_monitor_check) >= monitor_check_interval):
+                    
+                    await self.monitor_controller.check_schedule()
+                    last_monitor_check = current_time
+                
                 # Handle pygame events
                 for event in pygame.event.get():
                     await self._handle_event(event)
                 
-                # Auto-advance slideshow
-                if not self.display.is_paused and \
-                   (current_time - last_image_change) >= self.config.interval:
+                # NEW: Auto-advance slideshow (only if monitor is on or monitor control disabled)
+                should_advance = True
+                if self.monitor_controller and self.config.toggle_monitor:
+                    should_advance = self.monitor_controller.monitor_state
+                
+                if (should_advance and 
+                    self.display and 
+                    not self.display.is_paused and 
+                    (current_time - last_image_change) >= self.config.interval):
+                    
                     await self.display.next_image()
                     last_image_change = current_time
                 
-                # Update display
+                # NEW: Update display (only if monitor is on or monitor control disabled)
                 if self.display:
-                    self.display.update()
+                    should_update = True
+                    if self.monitor_controller and self.config.toggle_monitor:
+                        should_update = self.monitor_controller.monitor_state
+                    
+                    if should_update:
+                        self.display.update()
                 
                 # Maintain framerate
                 clock.tick(60)
@@ -444,7 +483,7 @@ class TeleFrame:
             self.logger.error(f"Error handling touch: {e}")
     
     async def _handle_keyboard(self, key):
-        """Handle keyboard input with error handling"""
+        """Handle keyboard input with monitor control"""
         try:
             if key == pygame.K_ESCAPE or key == pygame.K_q:
                 self.shutdown_requested = True
@@ -454,13 +493,26 @@ class TeleFrame:
                 await self.display.next_image()
             elif key == pygame.K_SPACE and self.display:
                 self.display.toggle_pause()
+            
+            # NEW: Monitor control shortcuts (for debugging/testing)
+            elif key == pygame.K_m and self.monitor_controller:
+                # Toggle monitor (for testing)
+                if self.monitor_controller.monitor_state:
+                    await self.monitor_controller.turn_off(manual=True)
+                else:
+                    await self.monitor_controller.turn_on(manual=True)
+            
+            elif key == pygame.K_s and self.monitor_controller:
+                # Show monitor status in logs
+                status = self.monitor_controller.get_status()
+                self.logger.info(f"Monitor status: {status}")
                 
         except Exception as e:
             self.logger.error(f"Error handling keyboard: {e}")
 
 
 def check_prerequisites():
-    """Check system prerequisites before starting"""
+    """Check system prerequisites with monitor info"""
     logger = logging.getLogger("teleframe.precheck")
     
     # Check Python version
@@ -477,6 +529,20 @@ def check_prerequisites():
     # Check if framebuffer exists (warning only)
     if not Path("/dev/fb0").exists():
         logger.warning("⚠️  /dev/fb0 not found - desktop mode only")
+    
+    # NEW: Check monitor control capabilities
+    monitor_methods = []
+    if Path("/opt/vc/bin/vcgencmd").exists():
+        monitor_methods.append("vcgencmd (Raspberry Pi)")
+    if Path("/sys/class/drm").exists():
+        monitor_methods.append("DRM/KMS")
+    if Path("/sys/class/backlight").exists():
+        monitor_methods.append("Backlight")
+    
+    if monitor_methods:
+        logger.info(f"🖥️  Monitor control available: {', '.join(monitor_methods)}")
+    else:
+        logger.warning("⚠️  No monitor control methods detected")
     
     # Check required directories
     for directory in ["images", "logs"]:

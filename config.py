@@ -1,18 +1,20 @@
-# config.py - Enhanced TeleFrame Configuration
+# config.py - Enhanced TeleFrame Configuration - COMPLETE VERSION
 """
-Enhanced configuration management with SDL optimization and cursor handling
+Enhanced configuration management with HH:MM time support and monitor control
 """
 
 import logging
 import os
+import re
 import sys
+from datetime import time, datetime, timedelta
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 import toml
 
 
 class TeleFrameConfig:
-    """Enhanced TeleFrame configuration class with robust SDL handling"""
+    """Enhanced TeleFrame configuration class with HH:MM time support"""
     
     def __init__(self, **kwargs):
         # Telegram Bot Configuration
@@ -41,10 +43,18 @@ class TeleFrameConfig:
         self.play_sound_on_receive = kwargs.get("play_sound_on_receive", "sound1.mp3")
         self.play_video_audio = kwargs.get("play_video_audio", False)
         
-        # System Settings
+        # System Settings with Enhanced Time Support
         self.toggle_monitor = kwargs.get("toggle_monitor", False)
-        self.turn_on_hour = kwargs.get("turn_on_hour", 9)
-        self.turn_off_hour = kwargs.get("turn_off_hour", 22)
+        
+        # Parse time settings with enhanced support
+        self.turn_on_time = self._parse_time(kwargs.get("turn_on_hour", "09:00"))
+        self.turn_off_time = self._parse_time(kwargs.get("turn_off_hour", "22:00"))
+        
+        # Backward compatibility
+        self.turn_on_hour = self.turn_on_time.hour
+        self.turn_on_minute = self.turn_on_time.minute
+        self.turn_off_hour = self.turn_off_time.hour
+        self.turn_off_minute = self.turn_off_time.minute
         
         # Enhanced SDL/Display Configuration
         sdl_config = kwargs.get("sdl", {})
@@ -91,7 +101,108 @@ class TeleFrameConfig:
         
         # Validate and apply settings
         self._validate()
+        self._validate_time_config()
         self._apply_system_optimizations()
+    
+    def _parse_time(self, time_value: Union[str, int]) -> time:
+        """Parse time from various formats: int, 'HH:MM', 'H:MM', etc."""
+        
+        if isinstance(time_value, int):
+            # Backward compatibility: just hour
+            if 0 <= time_value <= 23:
+                return time(hour=time_value, minute=0)
+            else:
+                raise ValueError(f"Invalid hour: {time_value} (must be 0-23)")
+        
+        if isinstance(time_value, str):
+            # Remove whitespace
+            time_value = time_value.strip()
+            
+            # HH:MM format
+            if ':' in time_value:
+                time_pattern = r'^(\d{1,2}):(\d{2})$'
+                match = re.match(time_pattern, time_value)
+                
+                if match:
+                    hour = int(match.group(1))
+                    minute = int(match.group(2))
+                    
+                    # Validate hour and minute
+                    if 0 <= hour <= 23 and 0 <= minute <= 59:
+                        return time(hour=hour, minute=minute)
+                    else:
+                        raise ValueError(f"Invalid time: {time_value} (hour: 0-23, minute: 0-59)")
+                else:
+                    raise ValueError(f"Invalid time format: {time_value} (expected HH:MM)")
+            
+            # Try to parse as integer (hour only)
+            try:
+                hour = int(time_value)
+                if 0 <= hour <= 23:
+                    return time(hour=hour, minute=0)
+                else:
+                    raise ValueError(f"Invalid hour: {hour} (must be 0-23)")
+            except ValueError:
+                raise ValueError(f"Invalid time format: {time_value}")
+        
+        raise ValueError(f"Unsupported time format: {type(time_value)}")
+    
+    def get_turn_on_time(self) -> time:
+        """Get turn on time as time object"""
+        return self.turn_on_time
+    
+    def get_turn_off_time(self) -> time:
+        """Get turn off time as time object"""
+        return self.turn_off_time
+    
+    def format_time(self, time_obj: time) -> str:
+        """Format time object as HH:MM string"""
+        return time_obj.strftime("%H:%M")
+    
+    def update_schedule(self, turn_on_time: str, turn_off_time: str) -> bool:
+        """Update monitor schedule with new times"""
+        try:
+            new_on_time = self._parse_time(turn_on_time)
+            new_off_time = self._parse_time(turn_off_time)
+            
+            # Validate new times
+            if new_on_time == new_off_time:
+                raise ValueError("Turn on and turn off times cannot be the same")
+            
+            # Update times
+            self.turn_on_time = new_on_time
+            self.turn_off_time = new_off_time
+            
+            # Update backward compatibility values
+            self.turn_on_hour = new_on_time.hour
+            self.turn_on_minute = new_on_time.minute
+            self.turn_off_hour = new_off_time.hour
+            self.turn_off_minute = new_off_time.minute
+            
+            return True
+            
+        except ValueError as e:
+            logging.error(f"Invalid schedule update: {e}")
+            return False
+    
+    def _validate_time_config(self):
+        """Validate time configuration"""
+        # Check if times are the same
+        if self.turn_on_time == self.turn_off_time:
+            raise ValueError("Turn on and turn off times cannot be the same")
+        
+        # Calculate duration
+        if self.turn_on_time < self.turn_off_time:
+            # Same day schedule
+            duration = datetime.combine(datetime.min, self.turn_off_time) - datetime.combine(datetime.min, self.turn_on_time)
+        else:
+            # Cross midnight schedule
+            duration = (datetime.combine(datetime.min, time(23, 59)) - datetime.combine(datetime.min, self.turn_on_time) + 
+                       datetime.combine(datetime.min, self.turn_off_time) - datetime.combine(datetime.min, time(0, 0)))
+        
+        # Warn if duration is very short
+        if duration.total_seconds() < 3600:  # Less than 1 hour
+            logging.warning(f"Very short monitor schedule: {duration}")
     
     def _detect_best_driver(self) -> str:
         """Auto-detect the best SDL video driver for the system"""
@@ -146,13 +257,6 @@ class TeleFrameConfig:
         
         if not 1000 <= self.interval <= 300000:
             raise ValueError("interval must be between 1000 and 300000 ms")
-        
-        # Validate hours
-        if not 0 <= self.turn_on_hour <= 23:
-            raise ValueError("turn_on_hour must be between 0 and 23")
-        
-        if not 0 <= self.turn_off_hour <= 23:
-            raise ValueError("turn_off_hour must be between 0 and 23")
         
         # Validate FPS
         if not 10 <= self.target_fps <= 120:
@@ -282,6 +386,9 @@ class TeleFrameConfig:
             'crop_zoom_images': self.crop_zoom_images,
             'hide_cursor': self.hide_cursor,
             'disable_screensaver': self.disable_screensaver,
+            'toggle_monitor': self.toggle_monitor,
+            'turn_on_hour': self.format_time(self.turn_on_time),
+            'turn_off_hour': self.format_time(self.turn_off_time),
             'max_file_size': self.max_file_size,
             'allowed_file_types': self.allowed_file_types,
             'log_level': self.log_level,
@@ -498,6 +605,17 @@ if __name__ == "__main__":
     print(f"📁 Image folder: {config.image_folder}")
     print(f"🎨 SDL driver: {config.sdl_videodriver}")
     print(f"👆 Hide cursor: {config.hide_cursor}")
+    print(f"⏰ Schedule: {config.format_time(config.turn_on_time)} - {config.format_time(config.turn_off_time)}")
+    
+    # Test time parsing
+    print("\n🕒 Time parsing tests:")
+    test_cases = ["9", "22", "09:10", "22:34", "7:05", "23:59"]
+    for test_time in test_cases:
+        try:
+            parsed = config._parse_time(test_time)
+            print(f"  '{test_time}' → {config.format_time(parsed)}")
+        except ValueError as e:
+            print(f"  '{test_time}' → ERROR: {e}")
     
     # System validation
     warnings = config.validate_system()

@@ -293,9 +293,9 @@ class SlideshowDisplay:
             self.screen.fill(self.black)
             
             # Render TeleFrame text
-            title = self.font_large.render("TeleFrame", True, self.white)
+            title = self.font_large.render("Oma Ilonas TeleFrame", True, self.white)
             title_rect = title.get_rect(center=(self.screen_size[0] // 2, 
-                                              self.screen_size[1] // 2 - 50))
+                                                self.screen_size[1] // 2 - 50))
             self.screen.blit(title, title_rect)
             
             # Status text

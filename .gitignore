@@ -180,3 +180,6 @@ images/
 tests/
 config.toml
 .gittoken
+data/bot_state.json
+*.backup
+
