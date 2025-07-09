@@ -250,7 +250,8 @@ class TeleFrame:
         for attempt in range(max_retries):
             try:
                 # NEW: Pass monitor controller to bot
-                self.bot = TeleFrameBot(self.config, self.image_manager, self.monitor_controller)
+                self.bot = TeleFrameBot(self.config, self.image_manager, self.monitor_controller, self.display)
+                
                 await self.bot.start()
                 self.logger.info("✅ Telegram bot started successfully")
                 return

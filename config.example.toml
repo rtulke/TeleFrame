@@ -17,7 +17,7 @@ show_videos = true               	# Display video files in slideshow
 fullscreen = true               	# Run in fullscreen mode
 fade_time = 1500                    	# Fade transition time in milliseconds, default 1500
 interval = 10000                 	# Time each image is displayed in milliseconds (10 seconds)
-random_order = true              	# Show images in random order
+image_order = "random"    		# "random", "latest", "oldest", "sequential"
 
 # UI Settings
 show_sender = true               	# Display sender name on images

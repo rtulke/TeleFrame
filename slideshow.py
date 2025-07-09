@@ -1,7 +1,7 @@
-# slideshow.py - FIXED Import Order
+# slideshow.py - Updated with image_order support
 """
-Fixed slideshow display with pygame import AFTER SDL setup
-This matches the working framebuffer_test.py approach exactly
+Enhanced slideshow display with configurable image ordering
+Supports random, latest, oldest, and sequential ordering
 """
 
 import asyncio
@@ -9,13 +9,13 @@ import logging
 import os
 import random
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 
 # DON'T import pygame here - import it AFTER SDL setup!
 
 
 class SlideshowDisplay:
-    """Handles slideshow display with FIXED pygame import timing"""
+    """Handles slideshow display with configurable image ordering"""
     
     def __init__(self, config, image_manager=None):
         self.config = config
@@ -35,9 +35,10 @@ class SlideshowDisplay:
         self.fade_start_time = 0
         self.is_fading = False
         
-        # Image sequence for random order
+        # Image sequence for different ordering modes
         self.image_sequence = []
         self.sequence_index = 0
+        self.last_order_mode = None  # Track when order mode changes
         
         # Colors (will be set after pygame import)
         self.black = None
@@ -47,7 +48,7 @@ class SlideshowDisplay:
         self.pygame = None
         self.PILImage = None
         
-        self.logger.info("SlideshowDisplay initialized (pygame not imported yet)")
+        self.logger.info(f"SlideshowDisplay initialized with order: {config.get_image_order_mode()}")
     
     async def initialize(self):
         """Initialize pygame and display - IMPORT pygame HERE, not at module level"""
@@ -266,6 +267,7 @@ class SlideshowDisplay:
             self.logger.info(f"   pygame version: {self.pygame.version.ver}")
             self.logger.info(f"   SDL version: {self.pygame.version.SDL}")
             self.logger.info(f"   Fullscreen: {self.config.fullscreen}")
+            self.logger.info(f"   Image order: {self.config.get_image_order_mode()}")
             
             # Show initial screen
             self._show_startup_screen()
@@ -285,7 +287,7 @@ class SlideshowDisplay:
             raise
     
     def _show_startup_screen(self):
-        """Show startup screen with TeleFrame logo"""
+        """Show startup screen with TeleFrame logo and image order info"""
         if not self.pygame or not self.screen:
             return
             
@@ -309,11 +311,18 @@ class SlideshowDisplay:
                                                 self.screen_size[1] // 2 + 20))
             self.screen.blit(status, status_rect)
             
+            # Image order info
+            order_text = f"Order: {self.config.get_image_order_description()}"
+            order = self.font_small.render(order_text, True, self.white)
+            order_rect = order.get_rect(center=(self.screen_size[0] // 2,
+                                               self.screen_size[1] // 2 + 50))
+            self.screen.blit(order, order_rect)
+            
             # Display driver info
             driver_info = f"Driver: {self.pygame.display.get_driver()}"
             driver_text = self.font_small.render(driver_info, True, self.white)
             driver_rect = driver_text.get_rect(center=(self.screen_size[0] // 2,
-                                                     self.screen_size[1] // 2 + 60))
+                                                     self.screen_size[1] // 2 + 80))
             self.screen.blit(driver_text, driver_rect)
             
             self.pygame.display.flip()
@@ -321,8 +330,8 @@ class SlideshowDisplay:
         except Exception as e:
             self.logger.error(f"Error showing startup screen: {e}")
     
-    def _update_image_sequence(self):
-        """Update the image display sequence"""
+    def _update_image_sequence(self, force_refresh: bool = False):
+        """Update the image display sequence based on order mode"""
         if not self.image_manager:
             return
         
@@ -331,14 +340,111 @@ class SlideshowDisplay:
             self.image_sequence = []
             return
         
-        if self.config.random_order:
-            self.image_sequence = list(range(image_count))
-            random.shuffle(self.image_sequence)
-        else:
-            self.image_sequence = list(range(image_count))
+        current_order_mode = self.config.get_image_order_mode()
         
+        # Check if we need to update the sequence
+        if (not force_refresh and 
+            self.last_order_mode == current_order_mode and 
+            len(self.image_sequence) == image_count):
+            return
+        
+        self.logger.info(f"🔄 Updating image sequence: {current_order_mode} mode")
+        
+        # Generate sequence based on order mode
+        if current_order_mode == "random":
+            self.image_sequence = self._generate_random_sequence(image_count)
+        elif current_order_mode == "latest":
+            self.image_sequence = self._generate_latest_sequence(image_count)
+        elif current_order_mode == "oldest":
+            self.image_sequence = self._generate_oldest_sequence(image_count)
+        elif current_order_mode == "sequential":
+            self.image_sequence = self._generate_sequential_sequence(image_count)
+        else:
+            # Fallback to sequential if unknown mode
+            self.logger.warning(f"Unknown order mode: {current_order_mode}, using sequential")
+            self.image_sequence = self._generate_sequential_sequence(image_count)
+        
+        # Reset sequence position
         self.sequence_index = 0
-        self.logger.debug(f"Updated image sequence: {len(self.image_sequence)} images")
+        self.last_order_mode = current_order_mode
+        
+        self.logger.debug(f"Generated sequence: {len(self.image_sequence)} images, first 5: {self.image_sequence[:5]}")
+    
+    def _generate_random_sequence(self, image_count: int) -> List[int]:
+        """Generate randomized image sequence"""
+        sequence = list(range(image_count))
+        random.shuffle(sequence)
+        return sequence
+    
+    def _generate_latest_sequence(self, image_count: int) -> List[int]:
+        """Generate sequence with latest images first (reverse chronological)"""
+        # Images are stored with index 0 being newest (inserted at beginning)
+        return list(range(image_count))
+    
+    def _generate_oldest_sequence(self, image_count: int) -> List[int]:
+        """Generate sequence with oldest images first (chronological)"""
+        # Reverse the list to show oldest first
+        return list(range(image_count - 1, -1, -1))
+    
+    def _generate_sequential_sequence(self, image_count: int) -> List[int]:
+        """Generate sequential sequence (storage order)"""
+        return list(range(image_count))
+    
+    def change_image_order(self, new_order: str) -> bool:
+        """Change image order mode and refresh sequence"""
+        if self.config.set_image_order_mode(new_order):
+            self._update_image_sequence(force_refresh=True)
+            self.logger.info(f"✅ Image order changed to: {new_order}")
+            
+            # Show notification on screen if possible
+            self._show_order_change_notification(new_order)
+            return True
+        else:
+            self.logger.error(f"❌ Failed to change image order to: {new_order}")
+            return False
+    
+    def _show_order_change_notification(self, new_order: str):
+        """Show temporary notification of order change"""
+        if not self.pygame or not self.screen:
+            return
+        
+        try:
+            # Save current screen
+            saved_screen = self.screen.copy()
+            
+            # Create semi-transparent overlay
+            overlay = self.pygame.Surface(self.screen_size)
+            overlay.set_alpha(128)
+            overlay.fill((0, 0, 0))
+            self.screen.blit(overlay, (0, 0))
+            
+            # Show notification text
+            notification_text = f"Image Order: {new_order.title()}"
+            description = self.config.get_image_order_description()
+            
+            title = self.font_large.render(notification_text, True, self.white)
+            desc = self.font_medium.render(description, True, self.white)
+            
+            title_rect = title.get_rect(center=(self.screen_size[0] // 2, 
+                                               self.screen_size[1] // 2 - 30))
+            desc_rect = desc.get_rect(center=(self.screen_size[0] // 2,
+                                            self.screen_size[1] // 2 + 30))
+            
+            self.screen.blit(title, title_rect)
+            self.screen.blit(desc, desc_rect)
+            
+            self.pygame.display.flip()
+            
+            # Brief pause to show notification
+            import time
+            time.sleep(1.5)
+            
+            # Restore screen
+            self.screen.blit(saved_screen, (0, 0))
+            self.pygame.display.flip()
+            
+        except Exception as e:
+            self.logger.error(f"Error showing order change notification: {e}")
     
     def _load_and_scale_image(self, image_path: Path) -> Optional:
         """Load and scale image to fit screen"""
@@ -423,27 +529,41 @@ class SlideshowDisplay:
         return (int(img_w * scale), int(img_h * scale))
     
     async def next_image(self):
-        """Show next image"""
+        """Show next image based on current order mode"""
         if not self.image_manager or self.image_manager.get_image_count() == 0:
             self.logger.debug("No images available for next_image")
             return
         
-        if not self.image_sequence:
-            self._update_image_sequence()
+        # Update sequence if needed (e.g., new images added)
+        self._update_image_sequence()
         
+        if not self.image_sequence:
+            return
+        
+        # Handle random mode special case - reshuffle when sequence ends
+        if (self.config.get_image_order_mode() == "random" and 
+            self.sequence_index >= len(self.image_sequence) - 1):
+            self.logger.debug("End of random sequence - reshuffling")
+            self._update_image_sequence(force_refresh=True)
+        
+        # Advance to next image
         self.sequence_index = (self.sequence_index + 1) % len(self.image_sequence)
         self.current_image_index = self.image_sequence[self.sequence_index]
         
         await self._transition_to_image(self.current_image_index)
     
     async def previous_image(self):
-        """Show previous image"""
+        """Show previous image based on current order mode"""
         if not self.image_manager or self.image_manager.get_image_count() == 0:
             return
         
-        if not self.image_sequence:
-            self._update_image_sequence()
+        # Update sequence if needed
+        self._update_image_sequence()
         
+        if not self.image_sequence:
+            return
+        
+        # Go to previous image
         self.sequence_index = (self.sequence_index - 1) % len(self.image_sequence)
         self.current_image_index = self.image_sequence[self.sequence_index]
         
@@ -467,9 +587,65 @@ class SlideshowDisplay:
         # Simple immediate transition for now
         self.current_surface = new_surface
         self.screen.blit(self.current_surface, (0, 0))
+        
+        # Show image info if enabled
+        if self.config.show_sender or self.config.show_caption:
+            self._draw_image_info(image_index)
+        
         self.pygame.display.flip()
         
-        self.logger.debug(f"Showing image {image_index}: {image_path}")
+        # Log with order info
+        order_mode = self.config.get_image_order_mode()
+        self.logger.debug(f"Showing image {image_index} ({self.sequence_index + 1}/{len(self.image_sequence)}) "
+                         f"[{order_mode}]: {image_path}")
+    
+    def _draw_image_info(self, image_index: int):
+        """Draw image information overlay"""
+        if not self.pygame or not self.image_manager:
+            return
+        
+        try:
+            image_info = self.image_manager.get_image_info(image_index)
+            if not image_info:
+                return
+            
+            # Prepare text lines
+            text_lines = []
+            
+            if self.config.show_sender and image_info.sender:
+                text_lines.append(f"From: {image_info.sender}")
+            
+            if self.config.show_caption and image_info.caption:
+                text_lines.append(f"Caption: {image_info.caption}")
+            
+            if not text_lines:
+                return
+            
+            # Draw semi-transparent background
+            padding = 10
+            line_height = 30
+            total_height = len(text_lines) * line_height + 2 * padding
+            max_width = max(self.font_small.size(line)[0] for line in text_lines)
+            bg_width = max_width + 2 * padding
+            
+            # Position at bottom of screen
+            bg_x = 10
+            bg_y = self.screen_size[1] - total_height - 10
+            
+            bg_surface = self.pygame.Surface((bg_width, total_height))
+            bg_surface.set_alpha(180)
+            bg_surface.fill((0, 0, 0))
+            self.screen.blit(bg_surface, (bg_x, bg_y))
+            
+            # Draw text lines
+            y_offset = bg_y + padding
+            for line in text_lines:
+                text_surface = self.font_small.render(line, True, self.white)
+                self.screen.blit(text_surface, (bg_x + padding, y_offset))
+                y_offset += line_height
+                
+        except Exception as e:
+            self.logger.error(f"Error drawing image info: {e}")
     
     def toggle_pause(self):
         """Toggle pause state"""
@@ -488,6 +664,9 @@ class SlideshowDisplay:
                 # Show pause indicator
                 if self.is_paused:
                     self._draw_pause_indicator()
+                
+                # Show order mode indicator (small text in corner)
+                self._draw_order_indicator()
                 
                 self.pygame.display.flip()
         except Exception as e:
@@ -515,6 +694,43 @@ class SlideshowDisplay:
         except Exception as e:
             self.logger.error(f"Error drawing pause indicator: {e}")
     
+    def _draw_order_indicator(self):
+        """Draw small order mode indicator in corner"""
+        if not self.pygame:
+            return
+        
+        try:
+            # Small text in top-right corner
+            order_text = self.config.get_image_order_mode().upper()
+            text_surface = self.font_small.render(order_text, True, (200, 200, 200))
+            
+            # Position in top-right with small margin
+            x = self.screen_size[0] - text_surface.get_width() - 10
+            y = 10
+            
+            # Semi-transparent background
+            bg_surface = self.pygame.Surface((text_surface.get_width() + 4, 
+                                            text_surface.get_height() + 2))
+            bg_surface.set_alpha(100)
+            bg_surface.fill((0, 0, 0))
+            self.screen.blit(bg_surface, (x - 2, y - 1))
+            
+            # Draw text
+            self.screen.blit(text_surface, (x, y))
+            
+        except Exception as e:
+            self.logger.error(f"Error drawing order indicator: {e}")
+    
+    def get_current_order_info(self) -> dict:
+        """Get information about current image order"""
+        return {
+            "mode": self.config.get_image_order_mode(),
+            "description": self.config.get_image_order_description(),
+            "sequence_length": len(self.image_sequence),
+            "current_position": self.sequence_index + 1 if self.image_sequence else 0,
+            "current_image_index": self.current_image_index if self.image_sequence else None
+        }
+    
     def cleanup(self):
         """Clean up pygame resources"""
         try:
@@ -526,7 +742,7 @@ class SlideshowDisplay:
 
 
 if __name__ == "__main__":
-    # Test slideshow display
+    # Test slideshow display with different order modes
     import sys
     from config import TeleFrameConfig
     from image_manager import ImageManager
@@ -538,18 +754,20 @@ if __name__ == "__main__":
         
         await display.initialize()
         
-        # Simple test loop
-        import time
-        running = True
+        # Test different order modes
+        test_modes = ["random", "latest", "oldest", "sequential"]
         
-        start_time = time.time()
-        while running and (time.time() - start_time) < 5:  # 5 second test
-            for event in display.pygame.event.get():
-                if event.type == display.pygame.QUIT or event.type == display.pygame.KEYDOWN:
-                    running = False
+        for mode in test_modes:
+            print(f"Testing {mode} mode...")
+            display.change_image_order(mode)
             
-            display.update()
-            await asyncio.sleep(0.016)  # ~60fps
+            # Show order info
+            order_info = display.get_current_order_info()
+            print(f"  Order info: {order_info}")
+            
+            # Brief display
+            import time
+            time.sleep(2)
         
         display.cleanup()
     

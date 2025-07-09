@@ -1,6 +1,6 @@
-# config.py - Enhanced TeleFrame Configuration - COMPLETE VERSION
+# config.py - Enhanced TeleFrame Configuration with image_order
 """
-Enhanced configuration management with HH:MM time support and monitor control
+Enhanced configuration management with image_order parameter
 """
 
 import logging
@@ -14,13 +14,22 @@ import toml
 
 
 class TeleFrameConfig:
-    """Enhanced TeleFrame configuration class with HH:MM time support"""
+    """Enhanced TeleFrame configuration class with image_order support"""
     
     def __init__(self, **kwargs):
         # Telegram Bot Configuration
         self.bot_token = kwargs.get("bot_token", "bot-disabled")
         self.whitelist_chats = kwargs.get("whitelist_chats", [])
         self.whitelist_admins = kwargs.get("whitelist_admins", [])
+        
+        # Bot Rate Limiting Configuration
+        rate_limiting_config = kwargs.get("bot_rate_limiting", {})
+        self.rate_limiting_enabled = rate_limiting_config.get("enabled", True)
+        self.rate_limit_window = rate_limiting_config.get("window_seconds", 60)
+        self.rate_limit_max_messages = rate_limiting_config.get("max_messages", 10)
+        self.rate_limit_whitelist_exempt = rate_limiting_config.get("whitelist_exempt", True)
+        self.rate_limit_admin_exempt = rate_limiting_config.get("admin_exempt", True)
+        self.rate_limit_ban_duration = rate_limiting_config.get("ban_duration_minutes", 5)
         
         # Image Management
         self.image_folder = Path(kwargs.get("image_folder", "images"))
@@ -32,7 +41,9 @@ class TeleFrameConfig:
         self.fullscreen = kwargs.get("fullscreen", True)
         self.fade_time = kwargs.get("fade_time", 1500)
         self.interval = kwargs.get("interval", 10000)
-        self.random_order = kwargs.get("random_order", True)
+        
+        # NEW: Image Order Configuration
+        self.image_order = kwargs.get("image_order", "random")
         
         # UI Settings
         self.show_sender = kwargs.get("show_sender", True)
@@ -102,7 +113,117 @@ class TeleFrameConfig:
         # Validate and apply settings
         self._validate()
         self._validate_time_config()
+        self._validate_rate_limiting()
+        self._validate_image_order()
         self._apply_system_optimizations()
+    
+    def _validate_image_order(self):
+        """Validate image_order configuration"""
+        valid_orders = ["random", "latest", "oldest", "sequential"]
+        
+        if self.image_order not in valid_orders:
+            raise ValueError(f"image_order must be one of: {valid_orders}")
+        
+        logging.debug(f"Image order set to: {self.image_order}")
+    
+    def get_image_order_mode(self) -> str:
+        """Get current image order mode"""
+        return self.image_order
+    
+    def set_image_order_mode(self, mode: str) -> bool:
+        """Set image order mode with validation"""
+        valid_orders = ["random", "latest", "oldest", "sequential"]
+        
+        if mode not in valid_orders:
+            logging.error(f"Invalid image order mode: {mode}. Valid: {valid_orders}")
+            return False
+        
+        self.image_order = mode
+        logging.info(f"Image order changed to: {mode}")
+        return True
+    
+    def get_image_order_description(self) -> str:
+        """Get description of current image order mode"""
+        descriptions = {
+            "random": "Random order - images shuffled each cycle",
+            "latest": "Latest first - newest images shown first", 
+            "oldest": "Oldest first - oldest images shown first",
+            "sequential": "Sequential order - images shown in storage order"
+        }
+        return descriptions.get(self.image_order, "Unknown order mode")
+    
+    # ADD to existing validation methods
+    def _validate_rate_limiting(self):
+        """Validate rate limiting configuration"""
+        if not isinstance(self.rate_limiting_enabled, bool):
+            raise ValueError("rate_limiting_enabled must be boolean")
+        
+        if not 1 <= self.rate_limit_window <= 3600:
+            raise ValueError("rate_limit_window must be between 1 and 3600 seconds")
+        
+        if not 1 <= self.rate_limit_max_messages <= 1000:
+            raise ValueError("rate_limit_max_messages must be between 1 and 1000")
+        
+        if not isinstance(self.rate_limit_whitelist_exempt, bool):
+            raise ValueError("rate_limit_whitelist_exempt must be boolean")
+        
+        if not isinstance(self.rate_limit_admin_exempt, bool):
+            raise ValueError("rate_limit_admin_exempt must be boolean")
+        
+        if not 1 <= self.rate_limit_ban_duration <= 1440:  # max 24 hours
+            raise ValueError("rate_limit_ban_duration must be between 1 and 1440 minutes")
+    
+    def get_rate_limit_config(self) -> Dict[str, Any]:
+        """Get complete rate limiting configuration"""
+        return {
+            "enabled": self.rate_limiting_enabled,
+            "window_seconds": self.rate_limit_window,
+            "max_messages": self.rate_limit_max_messages,
+            "whitelist_exempt": self.rate_limit_whitelist_exempt,
+            "admin_exempt": self.rate_limit_admin_exempt,
+            "ban_duration_minutes": self.rate_limit_ban_duration
+        }
+    
+    def update_rate_limit_config(self, **kwargs) -> bool:
+        """Update rate limiting configuration"""
+        try:
+            # Validate new values before applying
+            temp_config = self.get_rate_limit_config()
+            temp_config.update(kwargs)
+            
+            # Basic validation
+            if "window_seconds" in kwargs:
+                if not 1 <= kwargs["window_seconds"] <= 3600:
+                    raise ValueError("window_seconds must be between 1 and 3600")
+            
+            if "max_messages" in kwargs:
+                if not 1 <= kwargs["max_messages"] <= 1000:
+                    raise ValueError("max_messages must be between 1 and 1000")
+            
+            if "ban_duration_minutes" in kwargs:
+                if not 1 <= kwargs["ban_duration_minutes"] <= 1440:
+                    raise ValueError("ban_duration_minutes must be between 1 and 1440")
+            
+            # Apply changes
+            if "enabled" in kwargs:
+                self.rate_limiting_enabled = bool(kwargs["enabled"])
+            if "window_seconds" in kwargs:
+                self.rate_limit_window = int(kwargs["window_seconds"])
+            if "max_messages" in kwargs:
+                self.rate_limit_max_messages = int(kwargs["max_messages"])
+            if "whitelist_exempt" in kwargs:
+                self.rate_limit_whitelist_exempt = bool(kwargs["whitelist_exempt"])
+            if "admin_exempt" in kwargs:
+                self.rate_limit_admin_exempt = bool(kwargs["admin_exempt"])
+            if "ban_duration_minutes" in kwargs:
+                self.rate_limit_ban_duration = int(kwargs["ban_duration_minutes"])
+            
+            logging.info(f"Rate limiting config updated: {kwargs}")
+            return True
+            
+        except Exception as e:
+            logging.error(f"Failed to update rate limiting config: {e}")
+            return False
     
     def _parse_time(self, time_value: Union[str, int]) -> time:
         """Parse time from various formats: int, 'HH:MM', 'H:MM', etc."""
@@ -239,7 +360,8 @@ class TeleFrameConfig:
             self.image_folder,
             Path("logs"),
             Path("sounds"),
-            Path("cache")
+            Path("cache"),
+            Path("data")  # For bot state and other data
         ]
         
         for directory in directories:
@@ -380,7 +502,7 @@ class TeleFrameConfig:
             'fullscreen': self.fullscreen,
             'fade_time': self.fade_time,
             'interval': self.interval,
-            'random_order': self.random_order,
+            'image_order': self.image_order,  # NEW: image_order instead of random_order
             'show_sender': self.show_sender,
             'show_caption': self.show_caption,
             'crop_zoom_images': self.crop_zoom_images,
@@ -396,6 +518,16 @@ class TeleFrameConfig:
         
         if self.log_file:
             config_dict['log_file'] = str(self.log_file)
+        
+        # Bot Rate Limiting configuration
+        config_dict['bot_rate_limiting'] = {
+            'enabled': self.rate_limiting_enabled,
+            'window_seconds': self.rate_limit_window,
+            'max_messages': self.rate_limit_max_messages,
+            'whitelist_exempt': self.rate_limit_whitelist_exempt,
+            'admin_exempt': self.rate_limit_admin_exempt,
+            'ban_duration_minutes': self.rate_limit_ban_duration
+        }
         
         # SDL configuration
         config_dict['sdl'] = {
@@ -606,26 +738,20 @@ if __name__ == "__main__":
     print(f"🎨 SDL driver: {config.sdl_videodriver}")
     print(f"👆 Hide cursor: {config.hide_cursor}")
     print(f"⏰ Schedule: {config.format_time(config.turn_on_time)} - {config.format_time(config.turn_off_time)}")
+    print(f"🔄 Image order: {config.image_order} - {config.get_image_order_description()}")
     
-    # Test time parsing
-    print("\n🕒 Time parsing tests:")
-    test_cases = ["9", "22", "09:10", "22:34", "7:05", "23:59"]
-    for test_time in test_cases:
-        try:
-            parsed = config._parse_time(test_time)
-            print(f"  '{test_time}' → {config.format_time(parsed)}")
-        except ValueError as e:
-            print(f"  '{test_time}' → ERROR: {e}")
+    # Test rate limiting config
+    print(f"\n⚡ Rate Limiting:")
+    rate_config = config.get_rate_limit_config()
+    for key, value in rate_config.items():
+        print(f"  {key}: {value}")
     
-    # System validation
-    warnings = config.validate_system()
-    if warnings:
-        print("\n⚠️  System warnings:")
-        for warning in warnings:
-            print(f"   • {warning}")
-    
-    # Display system info
-    print("\n📊 System info:")
-    info = config.get_system_info()
-    for key, value in info.items():
-        print(f"   {key}: {value}")
+    # Test image order modes
+    print(f"\n🔄 Testing image order modes:")
+    test_modes = ["random", "latest", "oldest", "sequential", "invalid"]
+    for mode in test_modes:
+        success = config.set_image_order_mode(mode)
+        if success:
+            print(f"  ✅ {mode}: {config.get_image_order_description()}")
+        else:
+            print(f"  ❌ {mode}: Invalid mode")
