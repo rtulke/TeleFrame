@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-# setup.py - TeleFrame Installation and Setup
+# setup.py - TeleFrame Installation and Setup - FIXED VERSION
 """
-TeleFrame setup and installation script
+TeleFrame setup and installation script with corrected configuration
 """
 
 import os
@@ -122,7 +122,7 @@ def install_python_dependencies(venv_path: Path):
 
 
 def create_default_config():
-    """Create default configuration file"""
+    """Create default configuration file with CORRECT image_order parameter"""
     print("\n⚙️  Creating default configuration...")
 
     config_file = Path("config.toml")
@@ -131,46 +131,104 @@ def create_default_config():
         print("📄 Configuration file already exists")
         return
 
-    default_config = '''# TeleFrame Configuration
+    # FIXED: Use correct image_order instead of random_order
+    default_config = '''# TeleFrame Configuration File
+# Configure your digital picture frame settings
 
 # Telegram Bot Settings
 bot_token = "YOUR_BOT_TOKEN_HERE"  # Get from @BotFather
-whitelist_chats = []  # Add chat IDs to restrict access: [123456789, 987654321]
-whitelist_admins = []  # Add admin chat IDs: [123456789]
+whitelist_chats = []               # Add chat IDs to restrict access: [-123456789, 987654321]
+whitelist_admins = []              # Add admin chat IDs: [123456789]
 
 # Image Management
-image_folder = "images"
-image_count = 30
-auto_delete_images = true
-show_videos = true
+image_folder = "images"            # Folder to store received images
+image_count = 30                   # Maximum number of images in slideshow rotation
+auto_delete_images = true          # Automatically delete old images when limit reached
+show_videos = true                 # Display video files in slideshow
 
 # Display Settings
-fullscreen = true
-fade_time = 1500  # milliseconds
-interval = 10000  # milliseconds (10 seconds)
-random_order = true
+fullscreen = true                  # Run in fullscreen mode
+fade_time = 1500                   # Fade transition time in milliseconds, default 1500
+interval = 10000                   # Time each image is displayed in milliseconds (10 seconds)
+image_order = "random"             # "random", "latest", "oldest", "sequential"
 
 # UI Settings
-show_sender = true
-show_caption = true
-crop_zoom_images = false
+show_sender = true                 # Display sender name on images
+show_caption = true                # Display image captions
+crop_zoom_images = false           # Crop/zoom images to fill screen (vs letterbox)
 
 # Audio Settings
-play_sound_on_receive = "sound1.mp3"
-play_video_audio = false
+play_sound_on_receive = "sound1.mp3"  # Sound file to play when receiving images
+play_video_audio = false           # Play audio when displaying videos
 
 # System Settings
-toggle_monitor = false
-turn_on_hour = 9
-turn_off_hour = 22
+toggle_monitor = false             # Automatically turn monitor on/off
+turn_on_hour = "09:00"             # Hour to turn monitor on (HH:MM format)
+turn_off_hour = "22:00"            # Hour to turn monitor off (HH:MM format)
+
+# SDL/Display Configuration
+[sdl]
+# Video driver configuration for different Raspberry Pi setups
+videodriver = "kmsdrm"             # Options: "kmsdrm" (modern Pi), "fbcon" (legacy), "x11" (desktop)
+audiodriver = "alsa"               # Audio driver: "alsa", "pulse", "dummy"
+fbdev = "/dev/fb0"                 # Framebuffer device (only used with fbcon driver)
+nomouse = true                     # Hide mouse cursor
+
+# Advanced SDL settings (optional)
+[sdl.extra_env]
+# SDL_VIDEODRIVER_OPTIONS = "fbcon"      # Additional video driver options
+# SDL_FBDEV_MOUSE = "/dev/input/mice"    # Mouse device for framebuffer
+# SDL_MOUSE_RELATIVE = "0"               # Disable relative mouse mode
+
+# Bot Rate Limiting Configuration
+[bot_rate_limiting]
+enabled = true                     # Enable rate limiting
+window_seconds = 60                # Time window for rate limiting
+max_messages = 10                  # Maximum messages per window
+whitelist_exempt = true            # Exempt whitelisted chats from rate limiting
+admin_exempt = true                # Exempt admin chats from rate limiting
+ban_duration_minutes = 5           # Duration of temporary ban
 
 # Security Settings
-max_file_size = 52428800  # 50MB in bytes
-allowed_file_types = [".jpg", ".jpeg", ".png", ".gif", ".mp4"]
+max_file_size = 52428800           # 50MB in bytes (or 10MB = 10485760)
+allowed_file_types = [".jpg", ".jpeg", ".png", ".gif", ".mp4"]  # Allowed file extensions
 
-# Logging
-log_level = "INFO"
-# log_file = "teleframe.log"  # Uncomment to enable file logging
+# Logging Configuration
+log_level = "INFO"                 # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+# log_file = "logs/teleframe.log"   # Uncomment to enable file logging
+
+# Performance Settings
+[performance]
+target_fps = 60                    # Target frame rate
+vsync = true                       # Enable vertical sync
+hardware_acceleration = true       # Use hardware acceleration if available
+
+# Hardware-specific configurations:
+#
+# Modern Raspberry Pi 4/5 with DRM/KMS:
+# [sdl]
+# videodriver = "kmsdrm"
+# audiodriver = "alsa"
+# nomouse = true
+#
+# Legacy Raspberry Pi or older systems:
+# [sdl]
+# videodriver = "fbcon"
+# audiodriver = "alsa"
+# fbdev = "/dev/fb0"
+# nomouse = true
+#
+# Desktop development/testing:
+# [sdl]
+# videodriver = "x11"
+# audiodriver = "pulse"
+# nomouse = false
+#
+# Headless testing:
+# [sdl]
+# videodriver = "dummy"
+# audiodriver = "dummy"
+# nomouse = true
 '''
 
     try:
@@ -179,6 +237,7 @@ log_level = "INFO"
 
         print(f"✅ Created configuration file: {config_file}")
         print("📝 Edit config.toml to set your bot token and preferences")
+        print("🔄 Note: Using new 'image_order' parameter (replaces old 'random_order')")
 
     except Exception as e:
         print(f"❌ Error creating configuration: {e}")
@@ -196,8 +255,8 @@ After=network.target
 Type=simple
 User={os.getenv("USER", "pi")}
 WorkingDirectory={Path.cwd()}
-Environment=SDL_VIDEODRIVER=fbcon
-Environment=SDL_FBDEV=/dev/fb0
+Environment=SDL_VIDEODRIVER=kmsdrm
+Environment=SDL_AUDIODRIVER=alsa
 Environment=DISPLAY=:0
 ExecStart={Path.cwd()}/venv/bin/python main.py
 Restart=always
@@ -227,7 +286,7 @@ def create_directories():
     """Create necessary directories"""
     print("\n📁 Creating directories...")
 
-    directories = ["images", "logs", "sounds"]
+    directories = ["images", "logs", "sounds", "cache", "data"]
 
     for directory in directories:
         dir_path = Path(directory)
@@ -235,10 +294,35 @@ def create_directories():
         print(f"✅ Created directory: {directory}")
 
 
+def validate_config():
+    """Validate the created configuration"""
+    print("\n🧪 Validating configuration...")
+    
+    try:
+        # Try to import and test the config
+        sys.path.insert(0, str(Path.cwd()))
+        from config import TeleFrameConfig
+        
+        config = TeleFrameConfig.from_file("config.toml")
+        
+        print(f"✅ Configuration validation successful")
+        print(f"   Image order: {config.get_image_order_mode()}")
+        print(f"   Description: {config.get_image_order_description()}")
+        print(f"   SDL driver: {config.sdl_videodriver}")
+        print(f"   Monitor control: {'Enabled' if config.toggle_monitor else 'Disabled'}")
+        
+    except ImportError as e:
+        print(f"⚠️  Could not import config module: {e}")
+        print("   This is normal during initial setup")
+    except Exception as e:
+        print(f"❌ Configuration validation failed: {e}")
+        print("   Please check your config.toml file manually")
+
+
 def main():
     """Main setup function"""
-    print("🖼️  TeleFrame Python Setup")
-    print("=" * 50)
+    print("🖼️  TeleFrame Python Setup - Enhanced Version")
+    print("=" * 60)
 
     # Check if we're root (not recommended)
     if os.geteuid() == 0:
@@ -262,8 +346,11 @@ def main():
     # Install Python dependencies
     install_python_dependencies(venv_path)
 
-    # Create configuration
+    # Create configuration (if it doesn't exist)
     create_default_config()
+
+    # Validate configuration
+    validate_config()
 
     # Create directories
     create_directories()
@@ -277,12 +364,19 @@ def main():
     print("\n🎉 Setup complete!")
     print("\n📋 Next steps:")
     print("1. Edit config.toml and set your bot token")
-    print("2. Test with: ./venv/bin/python main.py")
-    print("3. Install systemd service (on Pi) for auto-start")
+    print("2. Configure image_order: 'random', 'latest', 'oldest', or 'sequential'")
+    print("3. Test with: ./venv/bin/python main.py")
+    print("4. Install systemd service (on Pi) for auto-start")
 
     if not is_pi:
         print("\n💻 Desktop testing:")
         print("   Export SDL_VIDEODRIVER=x11 for X11 display")
+
+    print("\n🆕 New Features:")
+    print("   • Image order control: random, latest, oldest, sequential")
+    print("   • Bot rate limiting with configurable settings")
+    print("   • Monitor control with time scheduling")
+    print("   • Enhanced configuration with validation")
 
 
 if __name__ == "__main__":
