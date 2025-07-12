@@ -19,6 +19,25 @@ fade_time = 1500                    	# Fade transition time in milliseconds, def
 interval = 10000                 	# Time each image is displayed in milliseconds (10 seconds)
 image_order = "random"    		# "random", "latest", "oldest", "sequential"
 
+# Display Resolution Configuration
+[display]
+resolution = "auto"                # Resolution: "auto", "1920x1080", "1280x720", "800x480", or presets
+# width = 1920                     # Alternative: specify width and height separately
+# height = 1080                    # Alternative: specify width and height separately
+
+# Available resolution presets:
+# "auto"       - Auto-detect system resolution
+# "fhd"        - Full HD 1920x1080
+# "hd"         - HD 1280x720
+# "pi_touch"   - Pi Touch Display 800x480
+# "xga"        - XGA 1024x768
+# "svga"       - SVGA 800x600
+# "sxga"       - SXGA 1280x1024
+# "4k"         - 4K UHD 3840x2160
+# "1080p"      - Same as "fhd"
+# "720p"       - Same as "hd"
+# Or custom: "1366x768", "1440x900", etc.
+
 # UI Settings
 show_sender = true               	# Display sender name on images
 show_caption = true              	# Display image captions
@@ -29,14 +48,17 @@ play_sound_on_receive = "sound1.mp3"  	# Sound file to play when receiving image
 play_video_audio = false        	# Play audio when displaying videos
 
 # System Settings
-toggle_monitor = false           	# Automatically turn monitor on/off
-turn_on_hour = 9                 	# Hour to turn monitor on (24h format)
-turn_off_hour = 22               	# Hour to turn monitor off (24h format)
+toggle_monitor = false             # Automatically turn monitor on/off
+turn_on_hour = "09:00"             # Hour to turn monitor on (HH:MM format)
+turn_off_hour = "22:00"            # Hour to turn monitor off (HH:MM format)
+hide_cursor = true                 # Hide mouse cursor
+disable_screensaver = true         # Disable system screensaver
+
 
 # SDL/Display Configuration
 [sdl]
 # Video driver configuration for different Raspberry Pi setups
-videodriver = "kmsdrm"           	# Options: "kmsdrm" (modern Pi), "fbcon" (legacy), "x11" (desktop)
+videodriver = "auto"                    # "auto", "kmsdrm" (modern Pi), "fbcon" (legacy), "x11" (desktop)
 audiodriver = "alsa"             	# Audio driver: "alsa", "pulse", "dummy"
 fbdev = "/dev/fb0"               	# Framebuffer device (only used with fbcon driver)
 nomouse = true                   	# Hide mouse cursor
@@ -55,6 +77,13 @@ allowed_file_types = [".jpg", ".jpeg", ".png", ".gif", ".mp4"]  # Allowed file e
 #log_level = "INFO"              	# Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
 log_level = "DEBUG"              	# Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
 # log_file = "logs/teleframe.log"  	# Uncomment to enable file logging
+
+# Performance Settings
+[performance]
+target_fps = 60                    # Target frame rate (auto-adjusted based on resolution)
+vsync = true                       # Enable vertical sync
+hardware_acceleration = true       # Use hardware acceleration if available
+
 
 # Hardware-specific configurations:
 #

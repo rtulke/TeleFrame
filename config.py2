@@ -1,6 +1,6 @@
-# config.py - Enhanced TeleFrame Configuration with Display Resolution and Time Methods
+# config.py - Enhanced TeleFrame Configuration with Image Optimization
 """
-Enhanced configuration management with display resolution and missing time methods
+Enhanced configuration management with display resolution, time methods, and image optimization
 """
 
 import logging
@@ -15,7 +15,7 @@ import toml
 
 
 class TeleFrameConfig:
-    """Enhanced TeleFrame configuration class with display resolution and time methods"""
+    """Enhanced TeleFrame configuration class with image optimization support"""
     
     def __init__(self, **kwargs):
         # Telegram Bot Configuration
@@ -38,12 +38,31 @@ class TeleFrameConfig:
         self.auto_delete_images = kwargs.get("auto_delete_images", True)
         self.show_videos = kwargs.get("show_videos", True)
         
+        # NEW: Image Optimization Configuration
+        image_opt_config = kwargs.get("image_optimization", {})
+        if isinstance(image_opt_config, bool):
+            # Handle simple boolean config: image_optimization = true
+            self.image_optimization = image_opt_config
+            self.compress_level = kwargs.get("compress_level", 70)
+            self.auto_format_conversion = True
+            self.preserve_aspect_ratio = True
+            self.enable_sharpening = False
+        else:
+            # Handle detailed config section: [image_optimization]
+            self.image_optimization = image_opt_config.get("enabled", kwargs.get("image_optimization", True))
+            self.compress_level = image_opt_config.get("compress_level", kwargs.get("compress_level", 70))
+            self.auto_format_conversion = image_opt_config.get("auto_format_conversion", True)
+            self.preserve_aspect_ratio = image_opt_config.get("preserve_aspect_ratio", True)
+            self.enable_sharpening = image_opt_config.get("enable_sharpening", False)
+            self.max_quality = image_opt_config.get("max_quality", 95)
+            self.min_quality = image_opt_config.get("min_quality", 60)
+        
         # Display Settings
         self.fullscreen = kwargs.get("fullscreen", True)
         self.fade_time = kwargs.get("fade_time", 1500)
         self.interval = kwargs.get("interval", 10000)
         
-        # ENHANCED: Display Resolution Configuration
+        # Display Resolution Configuration
         self.display_resolution = self._parse_display_resolution(kwargs)
         self.display_width = self.display_resolution[0]
         self.display_height = self.display_resolution[1]
@@ -63,7 +82,7 @@ class TeleFrameConfig:
         # System Settings
         self.toggle_monitor = kwargs.get("toggle_monitor", False)
         
-        # Parse time settings (FIXED: Use proper attribute names to avoid conflicts)
+        # Parse time settings
         self.turn_on_time = self._parse_time(kwargs.get("turn_on_hour", "09:00"))
         self.turn_off_time = self._parse_time(kwargs.get("turn_off_hour", "22:00"))
         
@@ -122,9 +141,10 @@ class TeleFrameConfig:
         self._validate_rate_limiting()
         self._validate_image_order()
         self._validate_display_resolution()
+        self._validate_image_optimization()
         self._apply_system_optimizations()
     
-    # FIXED: Add missing time methods that monitor_control.py expects
+    # Time methods (required by monitor_control.py)
     def get_turn_on_time(self) -> time:
         """Get turn on time as time object"""
         return self.turn_on_time
@@ -143,11 +163,9 @@ class TeleFrameConfig:
             new_on_time = self._parse_time(turn_on_time)
             new_off_time = self._parse_time(turn_off_time)
             
-            # Validate new times
             if new_on_time == new_off_time:
                 raise ValueError("Turn on and turn off times cannot be the same")
             
-            # Update time objects
             self.turn_on_time = new_on_time
             self.turn_off_time = new_off_time
             
@@ -163,30 +181,107 @@ class TeleFrameConfig:
             logging.error(f"Invalid schedule update: {e}")
             return False
     
+    # Image Optimization Methods
+    def _validate_image_optimization(self):
+        """Validate image optimization configuration"""
+        if not isinstance(self.image_optimization, bool):
+            self.image_optimization = True
+            logging.warning("Invalid image_optimization value, setting to True")
+        
+        if not 0 <= self.compress_level <= 100:
+            self.compress_level = 70
+            logging.warning("Invalid compress_level, setting to 70")
+        
+        if hasattr(self, 'max_quality') and not 50 <= self.max_quality <= 100:
+            self.max_quality = 95
+            logging.warning("Invalid max_quality, setting to 95")
+        
+        if hasattr(self, 'min_quality') and not 10 <= self.min_quality <= 90:
+            self.min_quality = 60
+            logging.warning("Invalid min_quality, setting to 60")
+        
+        logging.info(f"Image optimization configured:")
+        logging.info(f"  Enabled: {self.image_optimization}")
+        logging.info(f"  Compression level: {self.compress_level}")
+        logging.info(f"  Auto format conversion: {getattr(self, 'auto_format_conversion', True)}")
+        logging.info(f"  Preserve aspect ratio: {getattr(self, 'preserve_aspect_ratio', True)}")
+    
+    def get_image_optimization_config(self) -> Dict[str, Any]:
+        """Get complete image optimization configuration"""
+        return {
+            "enabled": self.image_optimization,
+            "compress_level": self.compress_level,
+            "auto_format_conversion": getattr(self, 'auto_format_conversion', True),
+            "preserve_aspect_ratio": getattr(self, 'preserve_aspect_ratio', True),
+            "enable_sharpening": getattr(self, 'enable_sharpening', False),
+            "max_quality": getattr(self, 'max_quality', 95),
+            "min_quality": getattr(self, 'min_quality', 60),
+        }
+    
+    def set_image_optimization(self, enabled: bool) -> bool:
+        """Enable or disable image optimization"""
+        try:
+            self.image_optimization = bool(enabled)
+            logging.info(f"Image optimization {'enabled' if enabled else 'disabled'}")
+            return True
+        except Exception as e:
+            logging.error(f"Failed to set image optimization: {e}")
+            return False
+    
+    def set_compress_level(self, level: int) -> bool:
+        """Set compression level (0-100)"""
+        try:
+            if not 0 <= level <= 100:
+                raise ValueError("Compression level must be between 0 and 100")
+            
+            old_level = self.compress_level
+            self.compress_level = level
+            logging.info(f"Compression level changed: {old_level} → {level}")
+            return True
+            
+        except Exception as e:
+            logging.error(f"Failed to set compression level: {e}")
+            return False
+    
+    def get_optimization_description(self) -> str:
+        """Get human-readable description of current optimization settings"""
+        if not self.image_optimization:
+            return "Image optimization disabled"
+        
+        if self.compress_level <= 20:
+            level_desc = "minimal compression (highest quality)"
+        elif self.compress_level <= 40:
+            level_desc = "light compression (high quality)"
+        elif self.compress_level <= 60:
+            level_desc = "medium compression (balanced)"
+        elif self.compress_level <= 80:
+            level_desc = "high compression (smaller files)"
+        else:
+            level_desc = "maximum compression (smallest files)"
+        
+        return f"Image optimization enabled with {level_desc} ({self.compress_level}%)"
+    
+    # Display Resolution Methods (existing)
     def _parse_display_resolution(self, kwargs: Dict[str, Any]) -> Tuple[int, int]:
         """Parse display resolution from various formats with auto-detection"""
         display_config = kwargs.get("display", {})
         
-        # Check for resolution in display config
         if "resolution" in display_config:
             resolution = display_config["resolution"]
             logging.debug(f"Found display resolution in config: {resolution}")
             return self._parse_resolution_string(resolution)
         
-        # Check for separate width/height
         if "width" in display_config and "height" in display_config:
             width = int(display_config["width"])
             height = int(display_config["height"])
             logging.debug(f"Found display width/height: {width}x{height}")
             return (width, height)
         
-        # Legacy compatibility - top level resolution
         if "resolution" in kwargs:
             resolution = kwargs["resolution"]
             logging.debug(f"Found legacy resolution: {resolution}")
             return self._parse_resolution_string(resolution)
         
-        # Auto-detect resolution
         logging.info("No display resolution specified, attempting auto-detection")
         return self._auto_detect_resolution()
     
@@ -194,7 +289,6 @@ class TeleFrameConfig:
         """Parse resolution string in various formats"""
         resolution = resolution.strip().lower()
         
-        # Handle preset names
         presets = {
             "auto": self._auto_detect_resolution(),
             "fhd": (1920, 1080),
@@ -219,7 +313,6 @@ class TeleFrameConfig:
                 logging.info(f"Using preset resolution '{resolution}': {presets[resolution]}")
                 return presets[resolution]
         
-        # Parse WIDTHxHEIGHT format
         if 'x' in resolution:
             try:
                 width_str, height_str = resolution.split('x', 1)
@@ -236,7 +329,6 @@ class TeleFrameConfig:
                 logging.error(f"Invalid resolution format: {resolution}")
                 raise ValueError(f"Invalid resolution format: {resolution} - {e}")
         
-        # Parse single dimension (assume 16:9)
         try:
             single_dim = int(resolution)
             if single_dim == 1080:
@@ -246,7 +338,6 @@ class TeleFrameConfig:
             elif single_dim == 480:
                 return (800, 480)
             else:
-                # Calculate 16:9 aspect ratio
                 height = single_dim
                 width = int(height * 16 / 9)
                 return (width, height)
@@ -295,7 +386,6 @@ class TeleFrameConfig:
                 if result.returncode == 0:
                     for line in result.stdout.split('\n'):
                         if '*' in line and 'x' in line:
-                            # Parse format like "1920x1080    59.93*+"
                             parts = line.split()
                             for part in parts:
                                 if 'x' in part and part.replace('x', '').replace('.', '').isdigit():
@@ -307,27 +397,6 @@ class TeleFrameConfig:
                                     break
                             if detected_resolution:
                                 break
-            except (subprocess.TimeoutExpired, FileNotFoundError, ValueError):
-                pass
-        
-        # Method 3: Try vcgencmd for Raspberry Pi
-        if not detected_resolution and Path("/opt/vc/bin/vcgencmd").exists():
-            try:
-                result = subprocess.run(
-                    ["/opt/vc/bin/vcgencmd", "get_lcd_info"], 
-                    capture_output=True, 
-                    text=True, 
-                    timeout=5
-                )
-                
-                if result.returncode == 0:
-                    # Parse output like "800 480 24"
-                    parts = result.stdout.strip().split()
-                    if len(parts) >= 2:
-                        width = int(parts[0])
-                        height = int(parts[1])
-                        detected_resolution = (width, height)
-                        logging.info(f"Detected Pi LCD resolution: {width}x{height}")
             except (subprocess.TimeoutExpired, FileNotFoundError, ValueError):
                 pass
         
@@ -445,28 +514,6 @@ class TeleFrameConfig:
             "is_pi_touch": self._is_pi_touch_display(),
         }
     
-    def set_display_resolution(self, width: int, height: int) -> bool:
-        """Set display resolution with validation"""
-        try:
-            if width < 320 or height < 240:
-                logging.error(f"Resolution {width}x{height} too small (minimum: 320x240)")
-                return False
-            
-            if width > 7680 or height > 4320:
-                logging.error(f"Resolution {width}x{height} too large (maximum: 7680x4320)")
-                return False
-            
-            self.display_resolution = (width, height)
-            self.display_width = width
-            self.display_height = height
-            
-            logging.info(f"Display resolution updated: {width}x{height}")
-            return True
-            
-        except Exception as e:
-            logging.error(f"Failed to set display resolution: {e}")
-            return False
-    
     def optimize_for_resolution(self):
         """Optimize settings based on current resolution"""
         width, height = self.display_resolution
@@ -493,7 +540,7 @@ class TeleFrameConfig:
             logging.info("Reducing fade time for low resolution")
             self.fade_time = 1000
     
-    # Keep existing methods for image_order, rate_limiting, etc.
+    # Image Order Methods (existing)
     def _parse_image_order(self, kwargs: Dict[str, Any]) -> str:
         """Parse image order with backwards compatibility"""
         if "image_order" in kwargs:
@@ -542,6 +589,7 @@ class TeleFrameConfig:
         }
         return descriptions.get(self.image_order, "Unknown order mode")
     
+    # Rate Limiting Methods (existing)
     def _validate_rate_limiting(self):
         """Validate rate limiting configuration"""
         if not isinstance(self.rate_limiting_enabled, bool):
@@ -568,6 +616,7 @@ class TeleFrameConfig:
             "ban_duration_minutes": self.rate_limit_ban_duration
         }
     
+    # Time Parsing Methods (existing)
     def _parse_time(self, time_value: Union[str, int]) -> time:
         """Parse time from various formats"""
         if isinstance(time_value, int):
@@ -606,6 +655,7 @@ class TeleFrameConfig:
         if self.turn_on_time == self.turn_off_time:
             raise ValueError("Turn on and turn off times cannot be the same")
     
+    # System Methods (existing)
     def _detect_best_driver(self) -> str:
         """Auto-detect the best SDL video driver"""
         if Path("/proc/device-tree/model").exists():
@@ -700,6 +750,7 @@ class TeleFrameConfig:
         except Exception as e:
             logging.debug(f"Could not apply system optimizations: {e}")
     
+    # File I/O Methods (existing)
     @classmethod
     def from_file(cls, config_path: str = "config.toml") -> "TeleFrameConfig":
         """Load configuration from TOML file"""
@@ -718,11 +769,14 @@ class TeleFrameConfig:
             logging.debug(f"Loaded config keys: {list(config_data.keys())}")
             if "display" in config_data:
                 logging.debug(f"Display config: {config_data['display']}")
+            if "image_optimization" in config_data:
+                logging.debug(f"Image optimization config: {config_data['image_optimization']}")
             
             config_instance = cls(**config_data)
             logging.info(f"Configuration loaded successfully")
             logging.info(f"Display resolution: {config_instance.display_width}x{config_instance.display_height}")
             logging.info(f"Image order: {config_instance.image_order}")
+            logging.info(f"Image optimization: {config_instance.get_optimization_description()}")
             
             return config_instance
             
@@ -799,6 +853,9 @@ class TeleFrameConfig:
             'width': self.display_width,
             'height': self.display_height,
         }
+        
+        # Image optimization configuration
+        config_dict['image_optimization'] = self.get_image_optimization_config()
         
         # Bot Rate Limiting
         config_dict['bot_rate_limiting'] = self.get_rate_limit_config()
@@ -908,6 +965,7 @@ class TeleFrameConfig:
             'home': os.environ.get('HOME'),
             'display_resolution': f"{self.display_width}x{self.display_height}",
             'display_info': self.get_display_info(),
+            'image_optimization': self.get_optimization_description(),
         }
         
         try:
@@ -944,8 +1002,8 @@ class TeleFrameConfig:
 
 
 if __name__ == "__main__":
-    # Test configuration loading and validation
-    print("🧪 Testing TeleFrame Configuration with Display Resolution...")
+    # Test configuration loading and validation with image optimization
+    print("🧪 Testing TeleFrame Configuration with Image Optimization...")
 
     # Test 1: Normal loading
     config = TeleFrameConfig.from_file("config.toml")
@@ -954,82 +1012,50 @@ if __name__ == "__main__":
     print(f"🖥️  Display resolution: {config.display_width}x{config.display_height}")
     print(f"⏰ Schedule: {config.format_time(config.get_turn_on_time())} - {config.format_time(config.get_turn_off_time())}")
     print(f"🔄 Image order: {config.image_order}")
+    print(f"🖼️  Image optimization: {config.get_optimization_description()}")
 
+    # Test 2: Image optimization config
+    print(f"\n🖼️  Image Optimization Settings:")
+    opt_config = config.get_image_optimization_config()
+    for key, value in opt_config.items():
+        print(f"   {key}: {value}")
+
+    # Test 3: Display info
     display_info = config.get_display_info()
-    print(f"📊 Display info:")
+    print(f"\n📊 Display info:")
     for key, value in display_info.items():
         print(f"   {key}: {value}")
 
-    # Test 2: Resolution presets
-    print(f"\n🎨 Available resolution presets:")
-    presets = config.get_available_presets()
-    for name, (width, height) in presets.items():
-        print(f"   {name}: {width}x{height}")
-
-    # Test 3: Resolution changes
-    print(f"\n🔄 Testing resolution changes:")
-    test_resolutions = ["1280x720", "fhd", "pi_touch"]
-    for res in test_resolutions:
-        success = config.set_display_resolution_preset(res)
+    # Test 4: Compression level changes
+    print(f"\n🔄 Testing compression level changes:")
+    test_levels = [20, 50, 80, 100, 150]  # Last one should fail
+    for level in test_levels:
+        success = config.set_compress_level(level)
         if success:
-            print(f"  ✅ {res}: {config.display_width}x{config.display_height}")
+            print(f"  ✅ Level {level}: {config.get_optimization_description()}")
         else:
-            print(f"  ❌ {res}: Failed")
+            print(f"  ❌ Level {level}: Invalid")
 
-    # Test 4: Auto-detection
-    print(f"\n🔍 Testing auto-detection:")
-    auto_res = config._auto_detect_resolution()
-    print(f"Auto-detected resolution: {auto_res[0]}x{auto_res[1]}")
-    
     # Test 5: Legacy compatibility
     print(f"\n🔧 Testing legacy compatibility:")
     legacy_config_data = {
-        "random_order": True,  # Old parameter
-        "image_folder": "test_images"
+        "image_optimization": False,  # Simple boolean
+        "compress_level": 60,
     }
     legacy_config = TeleFrameConfig(**legacy_config_data)
-    print(f"Legacy random_order=True → image_order={legacy_config.image_order}")
-    
-    legacy_config_data2 = {
-        "random_order": False,  # Old parameter
+    print(f"Simple boolean config → {legacy_config.get_optimization_description()}")
+
+    # Test 6: Advanced config
+    advanced_config_data = {
+        "image_optimization": {
+            "enabled": True,
+            "compress_level": 85,
+            "auto_format_conversion": True,
+            "preserve_aspect_ratio": True,
+            "enable_sharpening": True,
+        }
     }
-    legacy_config2 = TeleFrameConfig(**legacy_config_data2)
-    print(f"Legacy random_order=False → image_order={legacy_config2.image_order}")
-    
-    # Test 6: Image order modes
-    print(f"\n🔄 Testing image order modes:")
-    test_modes = ["random", "latest", "oldest", "sequential", "invalid"]
-    for mode in test_modes:
-        success = config.set_image_order_mode(mode)
-        if success:
-            print(f"  ✅ {mode}: {config.get_image_order_description()}")
-        else:
-            print(f"  ❌ {mode}: Invalid mode")
-    
-    # Test 7: Rate limiting config
-    print(f"\n⚡ Rate Limiting:")
-    rate_config = config.get_rate_limit_config()
-    for key, value in rate_config.items():
-        print(f"  {key}: {value}")
-    
-    # Test 8: Time methods (monitor control compatibility)
-    print(f"\n⏰ Time Methods:")
-    print(f"  get_turn_on_time(): {config.get_turn_on_time()}")
-    print(f"  get_turn_off_time(): {config.get_turn_off_time()}")
-    print(f"  format_time(): {config.format_time(config.get_turn_on_time())}")
-    
-    # Test 9: Display resolution methods
-    print(f"\n🖥️  Display Methods:")
-    print(f"  get_display_resolution(): {config.get_display_resolution()}")
-    print(f"  display_width: {config.display_width}")
-    print(f"  display_height: {config.display_height}")
-    
-    # Test 10: System info
-    print(f"\n🔧 System Info:")
-    system_info = config.get_system_info()
-    important_keys = ['platform', 'device_model', 'display_resolution', 'framebuffer_exists']
-    for key in important_keys:
-        if key in system_info:
-            print(f"  {key}: {system_info[key]}")
+    advanced_config = TeleFrameConfig(**advanced_config_data)
+    print(f"Advanced config → {advanced_config.get_optimization_description()}")
 
     print(f"\n🎉 All tests completed!")
