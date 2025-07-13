@@ -1,7 +1,8 @@
-# telegram_bot.py - Complete with Rate Limiting, Image Order Control and Image Optimization
+# telegram_bot.py - Complete with Rate Limiting, Image Order Control and Image Optimization - FIXED
 """
 Enhanced Telegram bot with robust update recovery, configurable rate limiting,
-image order control, and image optimization management. Complete implementation with all command handlers.
+image order control, and image optimization management. FIXED datetime timezone issue.
+Complete implementation with all handlers and methods.
 """
 
 import asyncio
@@ -9,7 +10,7 @@ import json
 import logging
 import os
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
@@ -297,8 +298,9 @@ class TeleFrameBot:
                 self.logger.info("No previous update ID found - starting fresh")
                 return
             
-            # Calculate maximum recovery time (24 hours)
-            max_recovery_time = datetime.now() - timedelta(hours=24)
+            # FIXED: Calculate maximum recovery time (24 hours) with timezone awareness
+            now_utc = datetime.now(timezone.utc)
+            max_recovery_time = now_utc - timedelta(hours=24)
             
             # Get pending updates
             self.logger.info(f"Fetching updates from offset {offset}...")
@@ -371,11 +373,32 @@ class TeleFrameBot:
                 elif update.callback_query:
                     update_time = update.callback_query.message.date if update.callback_query.message else None
                 
-                # Keep update if it's recent enough
-                if update_time and update_time >= cutoff_time:
-                    recent_updates.append(update)
+                # FIXED: Ensure both datetimes are timezone-aware for comparison
+                if update_time:
+                    # Convert update_time to UTC if it's not already timezone-aware
+                    if update_time.tzinfo is None:
+                        # If somehow the update_time is naive, assume UTC
+                        update_time = update_time.replace(tzinfo=timezone.utc)
+                    elif update_time.tzinfo != timezone.utc:
+                        # Convert to UTC for consistent comparison
+                        update_time = update_time.astimezone(timezone.utc)
+                    
+                    # Ensure cutoff_time is also UTC timezone-aware
+                    if cutoff_time.tzinfo is None:
+                        cutoff_time = cutoff_time.replace(tzinfo=timezone.utc)
+                    elif cutoff_time.tzinfo != timezone.utc:
+                        cutoff_time = cutoff_time.astimezone(timezone.utc)
+                    
+                    # Now both are timezone-aware UTC datetimes
+                    if update_time >= cutoff_time:
+                        recent_updates.append(update)
+                        self.logger.debug(f"Keeping recent update {update.update_id} from {update_time}")
+                    else:
+                        self.logger.debug(f"Skipping old update {update.update_id} from {update_time}")
                 else:
-                    self.logger.debug(f"Skipping old update {update.update_id}")
+                    # If we can't determine the time, include the update to be safe
+                    recent_updates.append(update)
+                    self.logger.debug(f"Including update {update.update_id} (no timestamp)")
                     
             except Exception as e:
                 self.logger.warning(f"Error filtering update {update.update_id}: {e}")
@@ -680,7 +703,7 @@ class TeleFrameBot:
             self.logger.error(f"Error sending rate limit violation message: {e}")
     
     # ========================================
-    # COMMAND HANDLERS
+    # COMMAND HANDLERS - COMPLETE IMPLEMENTATION
     # ========================================
     
     async def _cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -705,9 +728,12 @@ class TeleFrameBot:
         )
         
         # NEW: Add optimization info
-        if hasattr(self.config, 'image_optimization') and self.config.image_optimization:
-            optimized_count = self.image_manager.get_optimized_count()
-            welcome_msg += f"• Optimized: {optimized_count}/{self.image_manager.get_image_count()}\n"
+        if hasattr(self.config, 'image_optimization') and getattr(self.config, 'image_optimization', False):
+            try:
+                optimized_count = getattr(self.image_manager, 'get_optimized_count', lambda: 0)()
+                welcome_msg += f"• Optimized: {optimized_count}/{self.image_manager.get_image_count()}\n"
+            except:
+                pass
         
         welcome_msg += (
             f"\n📨 Send photos/videos to display them!\n\n"
@@ -777,9 +803,11 @@ class TeleFrameBot:
         if hasattr(self.config, 'image_optimization'):
             help_text += (
                 f"**Image Optimization:**\n"
-                f"• Status: {'Enabled' if self.config.image_optimization else 'Disabled'}\n"
-                f"• {self.config.get_optimization_description()}\n\n"
+                f"• Status: {'Enabled' if getattr(self.config, 'image_optimization', False) else 'Disabled'}\n"
             )
+            if hasattr(self.config, 'get_optimization_description'):
+                help_text += f"• {self.config.get_optimization_description()}\n"
+            help_text += "\n"
         
         # Add monitor info if available
         if self.monitor_controller:
@@ -839,13 +867,16 @@ class TeleFrameBot:
         
         # NEW: Add optimization status
         if hasattr(self.config, 'image_optimization'):
-            optimized_count = self.image_manager.get_optimized_count()
-            status_msg += f"• Optimized: {optimized_count}/{self.image_manager.get_image_count()}\n"
-            
-            if self.config.image_optimization:
-                opt_stats = self.image_manager.get_optimization_stats()
-                if 'total_savings_formatted' in opt_stats:
-                    status_msg += f"• Space saved: {opt_stats['total_savings_formatted']} ({opt_stats['savings_percent']})\n"
+            try:
+                optimized_count = getattr(self.image_manager, 'get_optimized_count', lambda: 0)()
+                status_msg += f"• Optimized: {optimized_count}/{self.image_manager.get_image_count()}\n"
+                
+                if getattr(self.config, 'image_optimization', False) and hasattr(self.image_manager, 'get_optimization_stats'):
+                    opt_stats = self.image_manager.get_optimization_stats()
+                    if 'total_savings_formatted' in opt_stats:
+                        status_msg += f"• Space saved: {opt_stats['total_savings_formatted']} ({opt_stats.get('savings_percent', 0)}%)\n"
+            except:
+                pass
         
         status_msg += (
             f"\n**Bot:**\n"
@@ -978,15 +1009,18 @@ class TeleFrameBot:
         
         # NEW: Add optimization statistics
         if hasattr(self.config, 'image_optimization'):
-            opt_stats = self.image_manager.get_optimization_stats()
-            if opt_stats['enabled']:
-                stats_msg += (
-                    f"\n**Image Optimization:**\n"
-                    f"• Optimized images: {opt_stats['optimized_images']}/{opt_stats['total_images']}\n"
-                    f"• Optimization rate: {opt_stats['optimization_rate']}\n"
-                    f"• Total space saved: {opt_stats.get('total_savings_formatted', 'N/A')}\n"
-                    f"• Average savings: {opt_stats.get('savings_percent', 'N/A')}\n"
-                )
+            try:
+                opt_stats = getattr(self.image_manager, 'get_optimization_stats', lambda: {})()
+                if opt_stats and opt_stats.get('enabled'):
+                    stats_msg += (
+                        f"\n**Image Optimization:**\n"
+                        f"• Optimized images: {opt_stats.get('optimized_images', 0)}/{opt_stats.get('total_images', 0)}\n"
+                        f"• Optimization rate: {opt_stats.get('optimization_rate', 'N/A')}\n"
+                        f"• Total space saved: {opt_stats.get('total_savings_formatted', 'N/A')}\n"
+                        f"• Average savings: {opt_stats.get('savings_percent', 'N/A')}\n"
+                    )
+            except:
+                pass
         
         # Add recovery stats for admins
         if self._is_admin(update.effective_chat.id):
@@ -1062,10 +1096,33 @@ class TeleFrameBot:
             await self.monitor_controller.turn_off(manual=True)
             await update.message.reply_text("🖥️ Monitor turned OFF manually")
             
+        elif args[0].lower() == "info":
+            # Show system information
+            info = self.monitor_controller.get_system_info()
+            
+            info_msg = (
+                f"🖥️ **Monitor System Information**\n\n"
+                f"**Current Method:** {info['control_method']}\n"
+                f"**Available Methods:** {', '.join(info['available_methods'])}\n\n"
+                f"**Hardware:**\n"
+            )
+            
+            for key, value in info.get('hardware', {}).items():
+                info_msg += f"• {key.replace('_', ' ').title()}: {'✅' if value else '❌'}\n"
+            
+            if 'device_model' in info:
+                info_msg += f"\n**Device:** {info['device_model']}\n"
+            
+            await update.message.reply_text(info_msg, parse_mode='Markdown')
+            
         else:
             await update.message.reply_text(
-                "❓ Usage: `/monitor [on|off]`\n"
-                "Without arguments shows status."
+                "❓ **Monitor Commands:**\n\n"
+                "`/monitor` - Show status\n"
+                "`/monitor on` - Turn on manually\n"
+                "`/monitor off` - Turn off manually\n"
+                "`/monitor info` - System information\n",
+                parse_mode='Markdown'
             )
     
     async def _cmd_schedule(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1082,15 +1139,50 @@ class TeleFrameBot:
         
         args = context.args
         
-        if len(args) != 2:
+        if not args:
+            # Show current schedule
             status = self.monitor_controller.get_status()
             await update.message.reply_text(
                 f"📅 **Current Schedule:**\n"
                 f"• Turn ON: {status['turn_on_time']}\n"
-                f"• Turn OFF: {status['turn_off_time']}\n\n"
+                f"• Turn OFF: {status['turn_off_time']}\n"
+                f"• Auto-control: {'Enabled' if status['enabled'] else 'Disabled'}\n"
+                f"• Current time: {status['current_time']}\n"
+                f"• Next change: {status['next_change']}\n\n"
                 f"**Usage:** `/schedule ON_TIME OFF_TIME`\n"
                 f"**Example:** `/schedule 09:00 22:30`\n"
                 f"**Format:** HH:MM (24-hour)",
+                parse_mode='Markdown'
+            )
+            return
+        
+        if args[0].lower() == "enable":
+            # Enable auto-control
+            self.config.toggle_monitor = True
+            await update.message.reply_text(
+                "✅ **Monitor auto-control enabled**\n"
+                "Monitor will follow the configured schedule."
+            )
+            return
+        
+        if args[0].lower() == "disable":
+            # Disable auto-control
+            self.config.toggle_monitor = False
+            await update.message.reply_text(
+                "⚠️ **Monitor auto-control disabled**\n"
+                "Monitor will not automatically turn on/off."
+            )
+            return
+        
+        if len(args) != 2:
+            await update.message.reply_text(
+                "❓ **Schedule Commands:**\n\n"
+                "`/schedule` - Show current schedule\n"
+                "`/schedule ON_TIME OFF_TIME` - Set schedule\n"
+                "`/schedule enable` - Enable auto-control\n"
+                "`/schedule disable` - Disable auto-control\n\n"
+                "**Time Format:** HH:MM (24-hour)\n"
+                "**Example:** `/schedule 09:00 22:30`",
                 parse_mode='Markdown'
             )
             return
@@ -1172,8 +1264,25 @@ class TeleFrameBot:
                 self.recovery_manager._create_default_state()
                 await update.message.reply_text("✅ Recovery state reset")
                 
+            elif args[0] == "force":
+                # Force recovery run
+                await update.message.reply_text("🔄 Forcing recovery run...")
+                
+                try:
+                    await self._perform_update_recovery()
+                    await update.message.reply_text("✅ Forced recovery completed")
+                except Exception as e:
+                    await update.message.reply_text(f"❌ Forced recovery failed: {e}")
+                    
             else:
-                await update.message.reply_text("❓ Usage: `/recovery [test|reset]`")
+                await update.message.reply_text(
+                    "❓ **Recovery Commands:**\n\n"
+                    "`/recovery` - Show statistics\n"
+                    "`/recovery test` - Test system\n"
+                    "`/recovery reset` - Reset state\n"
+                    "`/recovery force` - Force recovery run\n",
+                    parse_mode='Markdown'
+                )
                 
         except Exception as e:
             self.logger.error(f"Error in recovery command: {e}")
@@ -1493,7 +1602,7 @@ class TeleFrameBot:
             )
     
     # ========================================
-    # NEW: IMAGE OPTIMIZATION COMMANDS
+    # IMAGE OPTIMIZATION COMMANDS
     # ========================================
     
     async def _cmd_optimize(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1509,110 +1618,104 @@ class TeleFrameBot:
         if not args:
             # Show optimization status
             if hasattr(self.config, 'image_optimization'):
-                opt_stats = self.image_manager.get_optimization_stats()
-                
-                status_msg = (
-                    f"🖼️ **Image Optimization Status**\n\n"
-                    f"**Configuration:**\n"
-                    f"• Status: {'Enabled' if opt_stats['enabled'] else 'Disabled'}\n"
-                )
-                
-                if opt_stats['enabled']:
-                    status_msg += (
-                        f"• Description: {self.config.get_optimization_description()}\n"
-                        f"• Compress level: {self.config.compress_level}\n"
-                        f"• Auto format conversion: {'✅' if getattr(self.config, 'auto_format_conversion', True) else '❌'}\n"
-                        f"• Preserve aspect ratio: {'✅' if getattr(self.config, 'preserve_aspect_ratio', True) else '❌'}\n\n"
-                        f"**Statistics:**\n"
-                        f"• Total images: {opt_stats['total_images']}\n"
-                        f"• Optimized images: {opt_stats['optimized_images']}\n"
-                        f"• Optimization rate: {opt_stats['optimization_rate']}\n"
+                try:
+                    opt_stats = getattr(self.image_manager, 'get_optimization_stats', lambda: {})()
+                    
+                    status_msg = (
+                        f"🖼️ **Image Optimization Status**\n\n"
+                        f"**Configuration:**\n"
+                        f"• Status: {'Enabled' if getattr(self.config, 'image_optimization', False) else 'Disabled'}\n"
                     )
                     
-                    if 'total_savings_formatted' in opt_stats:
-                        status_msg += (
-                            f"• Space saved: {opt_stats['total_savings_formatted']}\n"
-                            f"• Average savings: {opt_stats['savings_percent']}\n"
-                        )
-                
-                status_msg += (
-                    f"\n**Commands:**\n"
-                    f"• `/optimize enable` - Enable optimization\n"
-                    f"• `/optimize disable` - Disable optimization\n"
-                    f"• `/optimize stats` - Detailed statistics\n"
-                    f"• `/compression [level]` - Set compression level\n"
-                )
-                
-                await update.message.reply_text(status_msg, parse_mode='Markdown')
-                
+                    if getattr(self.config, 'image_optimization', False):
+                        if hasattr(self.config, 'get_optimization_description'):
+                            status_msg += f"• Description: {self.config.get_optimization_description()}\n"
+                        if hasattr(self.config, 'compress_level'):
+                            status_msg += f"• Compress level: {getattr(self.config, 'compress_level', 70)}\n"
+                        
+                        status_msg += "\n**Statistics:**\n"
+                        if opt_stats:
+                            status_msg += f"• Total images: {opt_stats.get('total_images', 0)}\n"
+                            status_msg += f"• Optimized images: {opt_stats.get('optimized_images', 0)}\n"
+                            if 'total_savings_formatted' in opt_stats:
+                                status_msg += f"• Space saved: {opt_stats['total_savings_formatted']}\n"
+                    
+                    status_msg += (
+                        f"\n**Commands:**\n"
+                        f"• `/optimize enable` - Enable optimization\n"
+                        f"• `/optimize disable` - Disable optimization\n"
+                        f"• `/optimize stats` - Detailed statistics\n"
+                        f"• `/compression [level]` - Set compression level\n"
+                    )
+                    
+                    await update.message.reply_text(status_msg, parse_mode='Markdown')
+                except Exception as e:
+                    await update.message.reply_text(f"❌ Error getting optimization status: {e}")
             else:
                 await update.message.reply_text("❌ Image optimization not available")
                 
         elif args[0].lower() == "enable":
             # Enable optimization
-            if hasattr(self.config, 'set_image_optimization'):
-                success = self.config.set_image_optimization(True)
-                if success:
-                    await update.message.reply_text(
-                        "✅ **Image optimization enabled**\n"
-                        "New images will be automatically optimized.\n"
-                        "Edit `config.toml` to make this change permanent."
-                    )
-                    
-                    # Log admin action
-                    security_logger = logging.getLogger("teleframe.security")
-                    security_logger.info(f"Image optimization enabled by admin {update.effective_chat.id}")
-                else:
-                    await update.message.reply_text("❌ Failed to enable image optimization")
+            if hasattr(self.config, 'image_optimization'):
+                self.config.image_optimization = True
+                await update.message.reply_text(
+                    "✅ **Image optimization enabled**\n"
+                    "New images will be automatically optimized.\n"
+                    "Edit `config.toml` to make this change permanent."
+                )
+                
+                # Log admin action
+                security_logger = logging.getLogger("teleframe.security")
+                security_logger.info(f"Image optimization enabled by admin {update.effective_chat.id}")
             else:
                 await update.message.reply_text("❌ Image optimization control not available")
                 
         elif args[0].lower() == "disable":
             # Disable optimization
-            if hasattr(self.config, 'set_image_optimization'):
-                success = self.config.set_image_optimization(False)
-                if success:
-                    await update.message.reply_text(
-                        "⚠️ **Image optimization disabled**\n"
-                        "New images will be stored without optimization.\n"
-                        "Edit `config.toml` to make this change permanent."
-                    )
-                    
-                    # Log admin action
-                    security_logger = logging.getLogger("teleframe.security")
-                    security_logger.warning(f"Image optimization disabled by admin {update.effective_chat.id}")
-                else:
-                    await update.message.reply_text("❌ Failed to disable image optimization")
+            if hasattr(self.config, 'image_optimization'):
+                self.config.image_optimization = False
+                await update.message.reply_text(
+                    "⚠️ **Image optimization disabled**\n"
+                    "New images will be stored without optimization.\n"
+                    "Edit `config.toml` to make this change permanent."
+                )
+                
+                # Log admin action
+                security_logger = logging.getLogger("teleframe.security")
+                security_logger.warning(f"Image optimization disabled by admin {update.effective_chat.id}")
             else:
                 await update.message.reply_text("❌ Image optimization control not available")
                 
         elif args[0].lower() == "stats":
             # Show detailed statistics
             if hasattr(self.config, 'image_optimization'):
-                opt_stats = self.image_manager.get_optimization_stats()
-                
-                if opt_stats['enabled']:
-                    stats_msg = (
-                        f"📊 **Detailed Optimization Statistics**\n\n"
-                        f"**Image Processing:**\n"
-                        f"• Total images: {opt_stats['total_images']}\n"
-                        f"• Optimized images: {opt_stats['optimized_images']}\n"
-                        f"• Optimization rate: {opt_stats['optimization_rate']}\n\n"
-                        f"**Storage Impact:**\n"
-                        f"• Original total size: {opt_stats.get('total_original_size', 0)} bytes\n"
-                        f"• Current total size: {opt_stats.get('total_current_size', 0)} bytes\n"
-                        f"• Space saved: {opt_stats.get('total_savings_formatted', 'N/A')}\n"
-                        f"• Average savings: {opt_stats.get('savings_percent', 'N/A')}\n\n"
-                        f"**Configuration:**\n"
-                    )
+                try:
+                    opt_stats = getattr(self.image_manager, 'get_optimization_stats', lambda: {})()
                     
-                    opt_config = opt_stats.get('optimizer_config', {})
-                    for key, value in opt_config.items():
-                        stats_msg += f"• {key}: {value}\n"
+                    if opt_stats and opt_stats.get('enabled'):
+                        stats_msg = (
+                            f"📊 **Detailed Optimization Statistics**\n\n"
+                            f"**Image Processing:**\n"
+                            f"• Total images: {opt_stats.get('total_images', 0)}\n"
+                            f"• Optimized images: {opt_stats.get('optimized_images', 0)}\n"
+                            f"• Optimization rate: {opt_stats.get('optimization_rate', 'N/A')}\n\n"
+                            f"**Storage Impact:**\n"
+                            f"• Original total size: {opt_stats.get('total_original_size', 0)} bytes\n"
+                            f"• Current total size: {opt_stats.get('total_current_size', 0)} bytes\n"
+                            f"• Space saved: {opt_stats.get('total_savings_formatted', 'N/A')}\n"
+                            f"• Average savings: {opt_stats.get('savings_percent', 'N/A')}\n\n"
+                            f"**Configuration:**\n"
+                        )
                         
-                    await update.message.reply_text(stats_msg, parse_mode='Markdown')
-                else:
-                    await update.message.reply_text("❌ Image optimization is disabled")
+                        opt_config = opt_stats.get('optimizer_config', {})
+                        for key, value in opt_config.items():
+                            stats_msg += f"• {key}: {value}\n"
+                            
+                        await update.message.reply_text(stats_msg, parse_mode='Markdown')
+                    else:
+                        await update.message.reply_text("❌ Image optimization is disabled")
+                except Exception as e:
+                    await update.message.reply_text(f"❌ Error getting optimization stats: {e}")
             else:
                 await update.message.reply_text("❌ Image optimization not available")
                 
@@ -1643,9 +1746,14 @@ class TeleFrameBot:
             if hasattr(self.config, 'compress_level'):
                 compression_msg = (
                     f"🗜️ **Compression Settings**\n\n"
-                    f"**Current Level:** {self.config.compress_level}\n"
-                    f"**Description:** {self.config.get_optimization_description()}\n\n"
-                    f"**Compression Guide:**\n"
+                    f"**Current Level:** {getattr(self.config, 'compress_level', 'N/A')}\n"
+                )
+                
+                if hasattr(self.config, 'get_optimization_description'):
+                    compression_msg += f"**Description:** {self.config.get_optimization_description()}\n"
+                
+                compression_msg += (
+                    f"\n**Compression Guide:**\n"
                     f"• 0-20: Minimal compression (highest quality)\n"
                     f"• 21-40: Light compression (high quality)\n"
                     f"• 41-60: Medium compression (balanced)\n"
@@ -1664,15 +1772,14 @@ class TeleFrameBot:
             try:
                 new_level = int(args[0])
                 
-                if hasattr(self.config, 'set_compress_level'):
-                    old_level = self.config.compress_level
-                    success = self.config.set_compress_level(new_level)
-                    
-                    if success:
+                if 0 <= new_level <= 100:
+                    if hasattr(self.config, 'compress_level'):
+                        old_level = getattr(self.config, 'compress_level', 70)
+                        self.config.compress_level = new_level
+                        
                         await update.message.reply_text(
                             f"✅ **Compression Level Updated**\n\n"
-                            f"**Changed:** {old_level} → {new_level}\n"
-                            f"**Description:** {self.config.get_optimization_description()}\n\n"
+                            f"**Changed:** {old_level} → {new_level}\n\n"
                             f"⚠️ This change is temporary until restart.\n"
                             f"Edit `config.toml` to make it permanent."
                         )
@@ -1681,12 +1788,12 @@ class TeleFrameBot:
                         security_logger = logging.getLogger("teleframe.security")
                         security_logger.info(f"Compression level changed from {old_level} to {new_level} by admin {update.effective_chat.id}")
                     else:
-                        await update.message.reply_text(
-                            f"❌ **Invalid compression level**\n"
-                            f"Level must be between 0 and 100."
-                        )
+                        await update.message.reply_text("❌ Compression level control not available")
                 else:
-                    await update.message.reply_text("❌ Compression level control not available")
+                    await update.message.reply_text(
+                        f"❌ **Invalid compression level**\n"
+                        f"Level must be between 0 and 100."
+                    )
                     
             except ValueError:
                 await update.message.reply_text("❌ Invalid compression level format. Use a number between 0-100.")
@@ -1747,8 +1854,9 @@ class TeleFrameBot:
             # NEW: Enhanced response with optimization info
             response_text = "📸 Photo added to slideshow! ✅"
             
-            if hasattr(self.config, 'image_optimization') and self.config.image_optimization:
-                response_text += f"\n🔧 Optimized with {self.config.compress_level}% compression"
+            if hasattr(self.config, 'image_optimization') and getattr(self.config, 'image_optimization', False):
+                compress_level = getattr(self.config, 'compress_level', 70)
+                response_text += f"\n🔧 Optimized with {compress_level}% compression"
             
             await update.message.reply_text(response_text)
             self.logger.info(f"Photo added from {self._get_sender_name(update)}")
@@ -1874,9 +1982,10 @@ class TeleFrameBot:
             response_text = "📎 File added to slideshow! ✅"
             
             if (hasattr(self.config, 'image_optimization') and 
-                self.config.image_optimization and 
+                getattr(self.config, 'image_optimization', False) and 
                 file_extension.lower() in ['.jpg', '.jpeg', '.png', '.gif']):
-                response_text += f"\n🔧 Optimized with {self.config.compress_level}% compression"
+                compress_level = getattr(self.config, 'compress_level', 70)
+                response_text += f"\n🔧 Optimized with {compress_level}% compression"
             
             await update.message.reply_text(response_text)
             self.logger.info(f"Document added from {self._get_sender_name(update)}")
@@ -2035,6 +2144,7 @@ if __name__ == "__main__":
             print("🔄 Image order control via /order command")
             print("🖼️ Image optimization management via /optimize command")
             print("🗜️ Compression control via /compression command")
+            print("🖥️ Monitor control via /monitor and /schedule commands")
             print("Press Ctrl+C to stop.")
             
             while bot.running:
