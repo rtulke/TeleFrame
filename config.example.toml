@@ -12,6 +12,27 @@ image_folder = "images"          	# Folder to store received images
 image_count = 30                 	# Maximum number of images in slideshow rotation
 auto_delete_images = true        	# Automatically delete old images when limit reached
 show_videos = true               	# Display video files in slideshow
+
+# NEW: Image Optimization Settings
+image_optimization = true        	# Enable automatic image optimization
+compress_level = 70              	# Compression level 0-100 (higher = smaller files, lower quality)
+
+# Advanced Image Optimization (optional)
+[image_optimization]
+enabled = true                   	# Enable/disable image optimization
+compress_level = 70              	# Compression level 0-100 (0=minimal, 100=maximum compression)
+auto_format_conversion = true    	# Automatically convert to optimal format (JPEG/PNG)
+preserve_aspect_ratio = true     	# Maintain original aspect ratio when resizing
+enable_sharpening = false        	# Apply subtle sharpening after resize
+max_quality = 95                 	# Maximum JPEG quality (50-100)
+min_quality = 60                 	# Minimum JPEG quality (10-90)
+
+# Compression Level Guide:
+# 0-20:   Minimal compression (highest quality, largest files)
+# 21-40:  Light compression (high quality, good for photos)
+# 41-60:  Medium compression (balanced quality/size) 
+# 61-80:  High compression (smaller files, some quality loss)
+# 81-100: Maximum compression (smallest files, noticeable quality loss)
 	
 # Display Settings
 fullscreen = true               	# Run in fullscreen mode
@@ -69,6 +90,15 @@ nomouse = true                   	# Hide mouse cursor
 # SDL_FBDEV_MOUSE = "/dev/input/mice"  	# Mouse device for framebuffer
 # SDL_MOUSE_RELATIVE = "0"             	# Disable relative mouse mode
 
+# Bot Rate Limiting Configuration
+[bot_rate_limiting]
+enabled = true                   	# Enable rate limiting
+window_seconds = 60              	# Time window for rate limiting
+max_messages = 10                	# Maximum messages per window
+whitelist_exempt = true          	# Exempt whitelisted chats from rate limiting
+admin_exempt = true              	# Exempt admin chats from rate limiting
+ban_duration_minutes = 5         	# Duration of temporary ban
+
 # Security Settings
 max_file_size = 10485760		# 10MB or (50 mb = 52428800)
 allowed_file_types = [".jpg", ".jpeg", ".png", ".gif", ".mp4"]  # Allowed file extensions
@@ -85,14 +115,54 @@ vsync = true                       # Enable vertical sync
 hardware_acceleration = true       # Use hardware acceleration if available
 
 
-# Hardware-specific configurations:
-#
+# =====================================
+# Image Optimization Examples
+# =====================================
+
+# Example 1: High Quality (minimal compression)
+# [image_optimization]
+# enabled = true
+# compress_level = 20
+# auto_format_conversion = true
+# preserve_aspect_ratio = true
+# enable_sharpening = false
+
+# Example 2: Balanced Quality/Size (recommended)
+# [image_optimization]
+# enabled = true
+# compress_level = 70
+# auto_format_conversion = true
+# preserve_aspect_ratio = true
+# enable_sharpening = false
+
+# Example 3: Maximum Compression (smallest files)
+# [image_optimization]
+# enabled = true
+# compress_level = 90
+# auto_format_conversion = true
+# preserve_aspect_ratio = true
+# enable_sharpening = true
+
+# Example 4: Disabled (no optimization)
+# image_optimization = false
+
+# =====================================
+# Hardware-specific configurations
+# =====================================
+
 # Modern Raspberry Pi 4/5 with DRM/KMS:
 # [sdl]
 # videodriver = "kmsdrm"
 # audiodriver = "alsa"
 # nomouse = true
 #
+# [display]
+# resolution = "fhd"
+#
+# [image_optimization]
+# enabled = true
+# compress_level = 70
+
 # Legacy Raspberry Pi or older systems:
 # [sdl]
 # videodriver = "fbcon"
@@ -100,14 +170,82 @@ hardware_acceleration = true       # Use hardware acceleration if available
 # fbdev = "/dev/fb0"
 # nomouse = true
 #
+# [display]
+# resolution = "hd"
+#
+# [image_optimization]
+# enabled = true
+# compress_level = 80
+
 # Desktop development/testing:
 # [sdl]
 # videodriver = "x11"
 # audiodriver = "pulse"
 # nomouse = false
 #
+# [display]
+# resolution = "auto"
+#
+# [image_optimization]
+# enabled = false
+
 # Headless testing:
 # [sdl]
 # videodriver = "dummy"
 # audiodriver = "dummy"
 # nomouse = true
+#
+# [image_optimization]
+# enabled = false
+
+# =====================================
+# Pi Touch Display (800x480):
+# =====================================
+# [display]
+# resolution = "pi_touch"
+#
+# [image_optimization]
+# enabled = true
+# compress_level = 80  # Higher compression for smaller display
+# auto_format_conversion = true
+# preserve_aspect_ratio = true
+
+# =====================================
+# 4K Display Setup:
+# =====================================
+# [display]
+# resolution = "4k"
+#
+# [performance]
+# target_fps = 30  # Reduced for 4K
+# hardware_acceleration = true
+#
+# [image_optimization]
+# enabled = true
+# compress_level = 50  # Lower compression for 4K quality
+# auto_format_conversion = true
+# preserve_aspect_ratio = true
+
+# =====================================
+# Low Memory/Storage Setup:
+# =====================================
+# image_count = 15  # Fewer images
+#
+# [image_optimization]
+# enabled = true
+# compress_level = 85  # High compression to save space
+# auto_format_conversion = true
+# preserve_aspect_ratio = true
+# enable_sharpening = true
+
+# =====================================
+# High Quality Photo Frame:
+# =====================================
+# [image_optimization]
+# enabled = true
+# compress_level = 30  # Lower compression for quality
+# auto_format_conversion = false  # Keep original formats
+# preserve_aspect_ratio = true
+# enable_sharpening = false
+# max_quality = 95
+# min_quality = 80

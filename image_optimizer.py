@@ -25,9 +25,9 @@ class ImageOptimizer:
         # Get display resolution from config
         self.target_width, self.target_height = config.get_display_resolution()
         
-        # Optimization settings
+        # Optimization settings from config
         self.optimization_enabled = getattr(config, 'image_optimization', True)
-        self.compress_level = getattr(config, 'compress_level', 85)
+        self.compress_level = getattr(config, 'compress_level', 70)
         self.auto_format_conversion = getattr(config, 'auto_format_conversion', True)
         self.preserve_aspect_ratio = getattr(config, 'preserve_aspect_ratio', True)
         self.enable_sharpening = getattr(config, 'enable_sharpening', False)
@@ -51,7 +51,7 @@ class ImageOptimizer:
         self.logger.info(f"   Compression level: {self.compress_level}")
         self.logger.info(f"   Quality range: {self.min_quality}-{self.max_quality}")
     
-    def _create_quality_map(self) -> Dict[int, int]:
+    def _create_quality_map(self) -> Dict[str, int]:
         """Create quality mapping based on compression level (0-100)"""
         # Map compression level to JPEG quality
         # Higher compress_level = lower quality = smaller files
@@ -200,17 +200,9 @@ class ImageOptimizer:
     def _fix_orientation(self, img: Image.Image) -> Image.Image:
         """Fix image orientation based on EXIF data"""
         try:
-            if hasattr(img, '_getexif'):
-                exif = img._getexif()
-                if exif is not None:
-                    orientation = exif.get(ORIENTATION)
-                    if orientation:
-                        if orientation == 3:
-                            img = img.rotate(180, expand=True)
-                        elif orientation == 6:
-                            img = img.rotate(270, expand=True)
-                        elif orientation == 8:
-                            img = img.rotate(90, expand=True)
+            # Use ImageOps.exif_transpose for better EXIF handling
+            img = ImageOps.exif_transpose(img)
+            self.logger.debug("Fixed image orientation using EXIF data")
         except Exception as e:
             self.logger.debug(f"Could not fix orientation: {e}")
         
@@ -467,6 +459,65 @@ class ImageOptimizer:
         except Exception as e:
             return {'error': f'Test failed: {e}'}
 
+    def batch_optimize(self, image_folder: Path, file_pattern: str = "*.jpg") -> Dict[str, Any]:
+        """Batch optimize images in a folder"""
+        if not image_folder.exists():
+            return {'error': f'Folder not found: {image_folder}'}
+        
+        try:
+            # Find matching images
+            image_files = list(image_folder.glob(file_pattern))
+            if not image_files:
+                return {'error': f'No images found matching pattern: {file_pattern}'}
+            
+            results = {
+                'total_files': len(image_files),
+                'successful': 0,
+                'failed': 0,
+                'total_original_size': 0,
+                'total_optimized_size': 0,
+                'errors': []
+            }
+            
+            for image_file in image_files:
+                try:
+                    original_size = image_file.stat().st_size
+                    results['total_original_size'] += original_size
+                    
+                    optimized_path = self.optimize_image(image_file)
+                    
+                    if optimized_path and optimized_path.exists():
+                        optimized_size = optimized_path.stat().st_size
+                        results['total_optimized_size'] += optimized_size
+                        results['successful'] += 1
+                    else:
+                        results['total_optimized_size'] += original_size
+                        results['failed'] += 1
+                        results['errors'].append(f"Optimization failed for {image_file.name}")
+                        
+                except Exception as e:
+                    results['failed'] += 1
+                    results['errors'].append(f"Error processing {image_file.name}: {e}")
+                    # Add original size to avoid division by zero
+                    try:
+                        results['total_optimized_size'] += image_file.stat().st_size
+                    except:
+                        pass
+            
+            # Calculate total savings
+            if results['total_original_size'] > 0:
+                total_savings = results['total_original_size'] - results['total_optimized_size']
+                savings_percent = (total_savings / results['total_original_size']) * 100
+                
+                results['total_savings_bytes'] = total_savings
+                results['total_savings_formatted'] = self._format_bytes(total_savings)
+                results['savings_percent'] = savings_percent
+            
+            return results
+            
+        except Exception as e:
+            return {'error': f'Batch optimization failed: {e}'}
+
 
 if __name__ == "__main__":
     """Test image optimizer functionality"""
@@ -486,6 +537,17 @@ if __name__ == "__main__":
         
         def get_display_resolution(self):
             return (1920, 1080)
+        
+        def get_image_optimization_config(self):
+            return {
+                "enabled": self.image_optimization,
+                "compress_level": self.compress_level,
+                "auto_format_conversion": self.auto_format_conversion,
+                "preserve_aspect_ratio": self.preserve_aspect_ratio,
+                "enable_sharpening": self.enable_sharpening,
+                "max_quality": self.max_quality,
+                "min_quality": self.min_quality,
+            }
     
     print("🖼️  TeleFrame Image Optimizer Test")
     print("=" * 50)
@@ -524,8 +586,39 @@ if __name__ == "__main__":
                 print(f"⚠️  {results['message']}")
         else:
             print(f"❌ Test image not found: {test_image}")
+    
+    # Test batch optimization if folder provided
+    elif len(sys.argv) > 2 and sys.argv[1] == "--batch":
+        test_folder = Path(sys.argv[2])
+        pattern = sys.argv[3] if len(sys.argv) > 3 else "*.jpg"
+        
+        print(f"\nTesting batch optimization:")
+        print(f"  Folder: {test_folder}")
+        print(f"  Pattern: {pattern}")
+        
+        if test_folder.exists():
+            results = optimizer.batch_optimize(test_folder, pattern)
+            
+            if 'error' in results:
+                print(f"❌ Error: {results['error']}")
+            else:
+                print("✅ Batch optimization completed!")
+                print(f"  Files processed: {results['total_files']}")
+                print(f"  Successful: {results['successful']}")
+                print(f"  Failed: {results['failed']}")
+                
+                if 'total_savings_formatted' in results:
+                    print(f"  Total savings: {results['total_savings_formatted']} ({results['savings_percent']:.1f}%)")
+                
+                if results['errors']:
+                    print("  Errors:")
+                    for error in results['errors'][:5]:  # Show first 5 errors
+                        print(f"    - {error}")
+        else:
+            print(f"❌ Test folder not found: {test_folder}")
     else:
-        print("\nTo test with an image:")
-        print("python3 image_optimizer.py /path/to/image.jpg")
+        print("\nUsage:")
+        print("  Test single image: python3 image_optimizer.py /path/to/image.jpg")
+        print("  Test batch: python3 image_optimizer.py --batch /path/to/folder *.jpg")
     
     print("\n🎉 Image optimizer test completed!")
