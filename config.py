@@ -53,9 +53,14 @@ class TeleFrameConfig:
         
         # UI Settings
         self.show_sender = kwargs.get("show_sender", True)
-        self.show_caption = kwargs.get("show_caption", True)
-        self.crop_zoom_images = kwargs.get("crop_zoom_images", False)
+        self.show_sender_time = kwargs.get("show_sender_time", 0)      # seconds, 0 = permanent
         
+        self.show_caption = kwargs.get("show_caption", True)
+        self.show_caption_time = kwargs.get("show_caption_time", 0)    # seconds, 0 = permanent
+        
+        self.show_order_indicator = kwargs.get("show_order_indicator", True)  
+        self.crop_zoom_images = kwargs.get("crop_zoom_images", False)
+
         # Audio Settings
         self.play_sound_on_receive = kwargs.get("play_sound_on_receive", "sound1.mp3")
         self.play_video_audio = kwargs.get("play_video_audio", False)
@@ -108,7 +113,10 @@ class TeleFrameConfig:
         self.log_file = kwargs.get("log_file", None)
         if self.log_file:
             self.log_file = Path(self.log_file)
-        
+       
+        # Validation of the text settings
+        self._validate_ui_text_settings()
+
         # Error Handling
         self.max_errors_per_hour = kwargs.get("max_errors_per_hour", 100)
         self.enable_crash_recovery = kwargs.get("enable_crash_recovery", True)
@@ -778,7 +786,10 @@ class TeleFrameConfig:
             'interval': self.interval,
             'image_order': self.image_order,
             'show_sender': self.show_sender,
+            'show_sender_time': self.show_sender_time,
             'show_caption': self.show_caption,
+            'show_caption_time': self.show_caption_time,
+            'show_order_indicator': self.show_order_indicator,
             'crop_zoom_images': self.crop_zoom_images,
             'hide_cursor': self.hide_cursor,
             'disable_screensaver': self.disable_screensaver,
@@ -941,6 +952,32 @@ class TeleFrameConfig:
         """Check if file type is allowed"""
         file_ext = Path(filename).suffix.lower()
         return file_ext in self.allowed_file_types
+
+    def _validate_ui_text_settings(self):
+        """Validate UI text display settings"""
+        import logging
+
+        # Ensure display times are reasonable
+        if self.show_sender_time < 0:
+            self.logger.warning("show_sender_time cannot be negative, setting to 0")
+            self.show_sender_time = 0
+        
+        if self.show_caption_time < 0:
+            self.logger.warning("show_caption_time cannot be negative, setting to 0")
+            self.show_caption_time = 0
+        
+        # Limit maximum display time to interval time
+        max_display_time = self.interval / 1000  # Convert ms to seconds
+        
+        if self.show_sender_time > max_display_time and self.show_sender_time != 0:
+            self.logger.warning(f"show_sender_time ({self.show_sender_time}s) > interval ({max_display_time}s), limiting to interval")
+            self.show_sender_time = max_display_time
+        
+        if self.show_caption_time > max_display_time and self.show_caption_time != 0:
+            self.logger.warning(f"show_caption_time ({self.show_caption_time}s) > interval ({max_display_time}s), limiting to interval")
+            self.show_caption_time = max_display_time
+        
+        logging.debug(f"UI Text Settings: sender_time={self.show_sender_time}s, caption_time={self.show_caption_time}s, order_indicator={self.show_order_indicator}")
 
 
 if __name__ == "__main__":

@@ -8,8 +8,9 @@ import asyncio
 import logging
 import os
 import random
+import time
 from pathlib import Path
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Dict, Any
 
 # DON'T import pygame here - import it AFTER SDL setup!
 
@@ -28,8 +29,11 @@ class SlideshowDisplay:
         self.is_paused = False
         self.current_surface = None
         self.fade_surface = None
+        self.text_display_start_time = 0
+        self.current_image_start_time = 0
         
         # Animation state
+        self.text_fade_alpha = 255
         self.fade_progress = 0.0
         self.fade_duration = config.fade_time
         self.fade_start_time = 0
@@ -49,7 +53,8 @@ class SlideshowDisplay:
         self.PILImage = None
         
         self.logger.info(f"SlideshowDisplay initialized with order: {config.get_image_order_mode()}")
-    
+        self.logger.info(f"Text display configured: sender={config.show_sender_time}s, caption={config.show_caption_time}s")
+ 
     async def initialize(self):
         """Initialize pygame and display - IMPORT pygame HERE, not at module level"""
         try:
@@ -587,11 +592,24 @@ class SlideshowDisplay:
         # Simple immediate transition for now
         self.current_surface = new_surface
         self.screen.blit(self.current_surface, (0, 0))
+
+        # Reset timing for text display 
+        current_time = time.time()
+        self.current_image_start_time = current_time
+        self.text_display_start_time = current_time
+        self.text_fade_alpha = 255  # Full opacity
+
+        # Show image info if enabled (always)
+        # if self.config.show_sender or self.config.show_caption:
+        #    self._draw_image_info(image_index)
         
-        # Show image info if enabled
-        if self.config.show_sender or self.config.show_caption:
-            self._draw_image_info(image_index)
-        
+        # Show timed text overlays instead of always-on text
+        self._draw_timed_text_overlays()
+
+        # Mark image as seen
+        self._mark_image_as_seen(image_index)
+
+        # Flip image if enabled
         self.pygame.display.flip()
         
         # Log with order info
@@ -696,9 +714,9 @@ class SlideshowDisplay:
     
     def _draw_order_indicator(self):
         """Draw small order mode indicator in corner"""
-        if not self.pygame:
+        if not self.pygame or not self.config.show_order_indicator:  # Conditional check
             return
-        
+
         try:
             # Small text in top-right corner
             order_text = self.config.get_image_order_mode().upper()
@@ -731,6 +749,227 @@ class SlideshowDisplay:
             "current_image_index": self.current_image_index if self.image_sequence else None
         }
     
+    def _mark_image_as_seen(self, image_index: int):
+        """Mark image as seen when displayed (fixes unseen tracking)"""
+        try:
+            if self.image_manager:
+                was_unseen = self.image_manager.mark_image_seen(image_index)
+                if was_unseen:
+                    self.logger.debug(f"Image {image_index} marked as seen for first time")
+        except Exception as e:
+            self.logger.error(f"Error marking image {image_index} as seen: {e}")
+
+    def get_viewing_stats(self) -> dict:
+        """Get viewing statistics including seen/unseen counts"""
+        if not self.image_manager:
+            return {}
+        
+        stats = self.image_manager.get_image_stats()
+        
+        # Add slideshow-specific stats
+        if self.image_sequence:
+            current_order = self.config.get_image_order_mode()
+            stats.update({
+                'current_order': current_order,
+                'sequence_length': len(self.image_sequence),
+                'current_position': self.sequence_index + 1,
+                'images_remaining': len(self.image_sequence) - self.sequence_index - 1
+            })
+        
+        return stats
+
+   def _draw_timed_text_overlays(self):
+        """Draw text overlays with timing control and fading"""
+        if not hasattr(self, 'current_image_start_time') or not self.image_sequence:
+            return
+        
+        current_time = time.time()
+        time_since_image_start = current_time - self.current_image_start_time
+        time_since_text_start = current_time - self.text_display_start_time
+        
+        # Calculate remaining image display time
+        remaining_image_time = (self.config.interval / 1000) - time_since_image_start
+        
+        # Determine what text to show based on timing
+        show_sender = self._should_show_sender_text(time_since_text_start, remaining_image_time)
+        show_caption = self._should_show_caption_text(time_since_text_start, remaining_image_time)
+        
+        # Calculate text opacity for fading effect
+        text_alpha = self._calculate_text_alpha(time_since_text_start, remaining_image_time)
+        
+        # Draw the appropriate text with calculated alpha
+        if (show_sender or show_caption) and text_alpha > 0:
+            current_image_index = self.image_sequence[self.sequence_index] if self.image_sequence else 0
+            self._draw_image_info_with_alpha(current_image_index, show_sender, show_caption, text_alpha)
+
+    def _should_show_sender_text(self, time_since_text_start: float, remaining_image_time: float) -> bool:
+        """Determine if sender text should be shown"""
+        if not self.config.show_sender:
+            return False
+        
+        if self.config.show_sender_time == 0:  # Always show
+            return True
+        
+        # Show at beginning
+        if time_since_text_start <= self.config.show_sender_time:
+            return True
+        
+        # Show again at end if there's enough time remaining
+        if remaining_image_time > 0 and remaining_image_time <= self.config.show_sender_time:
+            return True
+        
+        return False
+
+    def _should_show_caption_text(self, time_since_text_start: float, remaining_image_time: float) -> bool:
+        """Determine if caption text should be shown"""
+        if not self.config.show_caption:
+            return False
+        
+        if self.config.show_caption_time == 0:  # Always show
+            return True
+        
+        # Show at beginning
+        if time_since_text_start <= self.config.show_caption_time:
+            return True
+        
+        # Show again at end if there's enough time remaining
+        if remaining_image_time > 0 and remaining_image_time <= self.config.show_caption_time:
+            return True
+        
+        return False
+
+    def _calculate_text_alpha(self, time_since_text_start: float, remaining_image_time: float) -> int:
+        """Calculate text opacity for smooth fading effects"""
+        fade_duration = 1.0  # 1 second fade in/out
+        
+        # For always-show text (time = 0), always full opacity
+        sender_always = self.config.show_sender_time == 0
+        caption_always = self.config.show_caption_time == 0
+        
+        if sender_always or caption_always:
+            return 255  # Full opacity
+        
+        # Fade in at start
+        if time_since_text_start <= fade_duration:
+            fade_factor = time_since_text_start / fade_duration
+            return int(255 * fade_factor)
+        
+        # Fade out at end
+        if remaining_image_time <= fade_duration and remaining_image_time > 0:
+            fade_factor = remaining_image_time / fade_duration
+            return int(255 * fade_factor)
+        
+        # Full opacity in between
+        return 255
+
+    def _draw_image_info_with_alpha(self, image_index: int, show_sender: bool, show_caption: bool, alpha: int):
+        """Draw image information overlay with transparency"""
+        if not self.pygame or not self.image_manager:
+            return
+        
+        try:
+            image_info = self.image_manager.get_image_info(image_index)
+            if not image_info:
+                return
+            
+            # Prepare text lines based on what should be shown
+            text_lines = []
+            
+            if show_sender and image_info.sender:
+                text_lines.append(f"From: {image_info.sender}")
+            
+            if show_caption and image_info.caption:
+                # Wrap long captions
+                caption_text = image_info.caption
+                if len(caption_text) > 60:  # Wrap long captions
+                    words = caption_text.split()
+                    lines = []
+                    current_line = []
+                    current_length = 0
+                    
+                    for word in words:
+                        if current_length + len(word) + 1 <= 60:
+                            current_line.append(word)
+                            current_length += len(word) + 1
+                        else:
+                            if current_line:
+                                lines.append(" ".join(current_line))
+                            current_line = [word]
+                            current_length = len(word)
+                    
+                    if current_line:
+                        lines.append(" ".join(current_line))
+                    
+                    for i, line in enumerate(lines[:3]):  # Max 3 lines
+                        text_lines.append(f"{'Caption: ' if i == 0 else '         '}{line}")
+                else:
+                    text_lines.append(f"Caption: {caption_text}")
+            
+            if not text_lines:
+                return
+            
+            # Draw semi-transparent background with alpha
+            padding = 10
+            line_height = 30
+            total_height = len(text_lines) * line_height + 2 * padding
+            
+            # Calculate maximum width
+            max_width = 0
+            for line in text_lines:
+                line_width = self.font_small.size(line)[0]
+                max_width = max(max_width, line_width)
+            
+            bg_width = max_width + 2 * padding
+            
+            # Position at bottom of screen
+            bg_x = 10
+            bg_y = self.screen_size[1] - total_height - 10
+            
+            # Create background surface with alpha
+            bg_surface = self.pygame.Surface((bg_width, total_height))
+            bg_alpha = min(180, int(180 * alpha / 255))  # Background slightly more transparent
+            bg_surface.set_alpha(bg_alpha)
+            bg_surface.fill((0, 0, 0))
+            self.screen.blit(bg_surface, (bg_x, bg_y))
+            
+            # Draw text lines with alpha
+            y_offset = bg_y + padding
+            for line in text_lines:
+                # Create text surface
+                text_surface = self.font_small.render(line, True, self.white)
+                
+                # Apply alpha to text
+                if alpha < 255:
+                    text_surface.set_alpha(alpha)
+                
+                self.screen.blit(text_surface, (bg_x + padding, y_offset))
+                y_offset += line_height
+                
+        except Exception as e:
+            self.logger.error(f"Error drawing timed image info: {e}")
+
+    def get_text_display_status(self) -> Dict[str, Any]:
+        """Get current text display timing status (for debugging)"""
+        if not hasattr(self, 'current_image_start_time'):
+            return {}
+        
+        current_time = time.time()
+        time_since_image_start = current_time - self.current_image_start_time
+        time_since_text_start = current_time - self.text_display_start_time
+        remaining_image_time = (self.config.interval / 1000) - time_since_image_start
+        
+        return {
+            'time_since_image_start': round(time_since_image_start, 1),
+            'time_since_text_start': round(time_since_text_start, 1), 
+            'remaining_image_time': round(remaining_image_time, 1),
+            'should_show_sender': self._should_show_sender_text(time_since_text_start, remaining_image_time),
+            'should_show_caption': self._should_show_caption_text(time_since_text_start, remaining_image_time),
+            'text_alpha': self._calculate_text_alpha(time_since_text_start, remaining_image_time),
+            'config_sender_time': self.config.show_sender_time,
+            'config_caption_time': self.config.show_caption_time,
+            'config_interval': self.config.interval / 1000
+        }
+
     def cleanup(self):
         """Clean up pygame resources"""
         try:

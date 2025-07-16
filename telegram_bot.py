@@ -241,10 +241,13 @@ class TeleFrameBot:
         # Image order command
         app.add_handler(CommandHandler("order", self._cmd_order))
         
-        # NEW: Image optimization commands
+        # Image optimization commands
         app.add_handler(CommandHandler("optimize", self._cmd_optimize))
         app.add_handler(CommandHandler("compression", self._cmd_compression))
-        
+
+        # Image seen
+        app.add_handler(CommandHandler("seen", self._cmd_seen))
+
         # Message handlers
         app.add_handler(MessageHandler(filters.PHOTO, self._handle_photo))
         app.add_handler(MessageHandler(filters.VIDEO, self._handle_video))
@@ -2046,7 +2049,66 @@ class TeleFrameBot:
             return f"{free_gb:.1f}GB"
         except:
             return "Unknown"
-    
+   
+    async def _cmd_seen(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /seen command - show viewing statistics"""
+        self.recovery_manager.update_last_update_id(update.update_id)
+        
+        if not self._is_authorized(update.effective_chat.id):
+            await self._send_unauthorized_message(update)
+            return
+        
+        if not self.image_manager:
+            await update.message.reply_text("❌ Image manager not available")
+            return
+        
+        try:
+            stats = self.image_manager.get_image_stats()
+            
+            stats_msg = (
+                f"👁️ **Viewing Statistics**\n\n"
+                f"**Image Library:**\n"
+                f"• Total images: {stats['total_images']}\n"
+                f"• Seen: {stats['seen_images']} ({stats['seen_percentage']}%)\n"
+                f"• Unseen: {stats['unseen_images']}\n"
+            )
+            
+            # Add slideshow stats if available
+            if self.slideshow_display:
+                try:
+                    viewing_stats = self.slideshow_display.get_viewing_stats()
+                    if viewing_stats:
+                        stats_msg += (
+                            f"\n**Current Slideshow:**\n"
+                            f"• Order: {viewing_stats.get('current_order', 'N/A')}\n"
+                            f"• Position: {viewing_stats.get('current_position', 0)}/{viewing_stats.get('sequence_length', 0)}\n"
+                            f"• Remaining: {viewing_stats.get('images_remaining', 0)}\n"
+                        )
+                except Exception as e:
+                    self.logger.debug(f"Could not get slideshow stats: {e}")
+            
+            # Show some unseen images
+            unseen_indices = self.image_manager.get_unseen_images()
+            if unseen_indices:
+                stats_msg += f"\n**Recently Added (unseen):**\n"
+                for i, idx in enumerate(unseen_indices[:3]):  # Show first 3
+                    try:
+                        image_info = self.image_manager.get_image_info(idx)
+                        if image_info:
+                            stats_msg += f"• {image_info.sender}: {image_info.caption[:30]}...\n"
+                    except:
+                        continue
+                
+                if len(unseen_indices) > 3:
+                    stats_msg += f"• ... and {len(unseen_indices) - 3} more\n"
+            
+            await update.message.reply_text(stats_msg, parse_mode='Markdown')
+            
+        except Exception as e:
+            self.logger.error(f"Error in seen command: {e}")
+            await update.message.reply_text("❌ Error getting viewing statistics")
+
+
     async def _send_unauthorized_message(self, update: Update):
         """Send unauthorized access message"""
         chat_id = update.effective_chat.id
