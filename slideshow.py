@@ -777,8 +777,8 @@ class SlideshowDisplay:
             })
         
         return stats
-
-   def _draw_timed_text_overlays(self):
+    
+    def _draw_timed_text_overlays(self):
         """Draw text overlays with timing control and fading"""
         if not hasattr(self, 'current_image_start_time') or not self.image_sequence:
             return
