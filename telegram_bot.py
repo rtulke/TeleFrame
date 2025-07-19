@@ -229,7 +229,8 @@ class TeleFrameBot:
         app.add_handler(CommandHandler("ping", self._cmd_ping))
         app.add_handler(CommandHandler("stats", self._cmd_stats))
         app.add_handler(CommandHandler("restart", self._cmd_restart))
-        
+        app.add_handler(CommandHandler("service", self._cmd_service))
+
         # Monitor control commands
         app.add_handler(CommandHandler("monitor", self._cmd_monitor))
         app.add_handler(CommandHandler("schedule", self._cmd_schedule))
@@ -507,6 +508,7 @@ class TeleFrameBot:
             '/recovery': self._cmd_recovery,
             '/ratelimit': self._cmd_ratelimit,
             '/restart': self._cmd_restart,
+            '/service': self._cmd_service,
             '/order': self._cmd_order,
             '/optimize': self._cmd_optimize,
             '/compression': self._cmd_compression,
@@ -774,7 +776,8 @@ class TeleFrameBot:
             f"/status - System status\n"
             f"/info - Chat information\n"
             f"/ping - Test connection\n"
-            f"/stats - Usage statistics\n\n"
+            f"/stats - Usage statistics\n"
+            f"/seen - Show Viewing statistics\n\n"
             f"**Media:**\n"
             f"• Send photos to add to slideshow\n"
             f"• Send videos (if enabled)\n"
@@ -793,6 +796,10 @@ class TeleFrameBot:
                 f"/recovery - Recovery statistics\n"
                 f"/ratelimit - Rate limiting control\n"
                 f"/restart - Restart frame\n\n"
+                f"/service - Show Service Information\n\n"
+                f"/service info - Show Service Information\n\n"
+                f"/service logs - Show Service Logs\n\n"
+
             )
         
         # Add current image order info
@@ -1039,25 +1046,259 @@ class TeleFrameBot:
         
         await update.message.reply_text(stats_msg, parse_mode='Markdown')
     
+
+
     async def _cmd_restart(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /restart command (admin only)"""
+        """Handle /restart command (admin only) - Simplified reload only"""
         self.recovery_manager.update_last_update_id(update.update_id)
         
         if not self._is_admin(update.effective_chat.id):
             await update.message.reply_text("🔒 Admin command only")
             return
         
-        await update.message.reply_text(
-            "🔄 **Restart Request**\n\n"
-            "⚠️ This command is not implemented yet.\n"
-            "Use systemctl to restart the service:\n"
-            "`sudo systemctl restart teleframe`",
+        # Get admin info for logging
+        admin_name = self._get_sender_name(update)
+        admin_id = update.effective_chat.id
+        
+        # Log admin action BEFORE execution
+        security_logger = logging.getLogger("teleframe.security")
+        security_logger.warning(f"Service reload requested by admin {admin_id} ({admin_name})")
+        
+        # Send initial message
+        status_message = await update.message.reply_text(
+            f"🔄 **Reloading TeleFrame Service**\n\n"
+            f"⏳ Please wait...",
             parse_mode='Markdown'
         )
         
-        # Log admin action
-        security_logger = logging.getLogger("teleframe.security")
-        security_logger.info(f"Restart requested by admin {update.effective_chat.id}")
+        try:
+            # Execute systemctl reload command
+            success, output, error = await self._execute_systemctl_reload()
+            
+            if success:
+                # Success message
+                success_msg = (
+                    f"✅ **TeleFrame Service Reloaded**\n\n"
+                    f"📡 TeleFrame has been gracefully reloaded.\n"
+                    f"• Configuration refreshed\n"
+                    f"• Bot connection maintained\n"
+                    f"• No data loss\n\n"
+                    f"🔄 Changes are now active.\n\n"
+                    f"🕐 Completed at: {datetime.now().strftime('%H:%M:%S')}"
+                )
+                
+                await status_message.edit_text(success_msg, parse_mode='Markdown')
+                
+                # Log success
+                self.logger.info(f"Service reload executed successfully by admin {admin_id}")
+                security_logger.info(f"Service reload completed successfully by admin {admin_id}")
+                
+            else:
+                # Error message
+                error_msg = (
+                    f"❌ **Service Reload Failed**\n\n"
+                    f"**Error Details:**\n"
+                    f"```\n{error[:500]}\n```\n\n"
+                    f"**Possible Causes:**\n"
+                    f"• Insufficient permissions\n"
+                    f"• Service configuration error\n"
+                    f"• System error\n\n"
+                    f"**Troubleshooting:**\n"
+                    f"• Check service status: `systemctl status teleframe`\n"
+                    f"• Check logs: `journalctl -u teleframe -f`\n"
+                    f"• Try manual reload: `sudo systemctl reload teleframe`"
+                )
+                
+                await status_message.edit_text(error_msg, parse_mode='Markdown')
+                
+                # Log error
+                self.logger.error(f"Service reload failed: {error}")
+                security_logger.error(f"Service reload failed for admin {admin_id}: {error}")
+        
+        except Exception as e:
+            # Exception handling
+            exception_msg = (
+                f"💥 **Critical Error During Reload**\n\n"
+                f"**Exception:** `{str(e)}`\n\n"
+                f"🔧 **Emergency Actions:**\n"
+                f"• SSH to server and check: `sudo systemctl status teleframe`\n"
+                f"• Check logs: `sudo journalctl -u teleframe --since '5 minutes ago'`\n"
+                f"• Manual reload: `sudo systemctl reload teleframe`"
+            )
+            
+            try:
+                await status_message.edit_text(exception_msg, parse_mode='Markdown')
+            except:
+                # If we can't edit the message, send a new one
+                await update.message.reply_text(exception_msg, parse_mode='Markdown')
+            
+            # Critical error logging
+            self.logger.error(f"Critical error in restart command: {e}")
+            security_logger.error(f"Critical error during service reload by admin {admin_id}: {e}")
+
+
+    async def _execute_systemctl_reload(self) -> tuple[bool, str, str]:
+        """Execute systemctl reload command with proper error handling"""
+        try:
+            cmd_array = ["sudo", "systemctl", "restart", "teleframe"]
+            
+            self.logger.info(f"Executing: {' '.join(cmd_array)}")
+            
+            # Execute command with timeout
+            process = await asyncio.create_subprocess_exec(
+                *cmd_array,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            try:
+                # Wait for completion with timeout
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(), 
+                    timeout=30.0  # 30 second timeout
+                )
+                
+                stdout_text = stdout.decode('utf-8') if stdout else ""
+                stderr_text = stderr.decode('utf-8') if stderr else ""
+                
+                # Check return code
+                if process.returncode == 0:
+                    self.logger.debug(f"Reload successful. Output: {stdout_text}")
+                    return True, stdout_text, stderr_text
+                else:
+                    self.logger.warning(f"Reload failed with code {process.returncode}. Error: {stderr_text}")
+                    return False, stdout_text, stderr_text
+                    
+            except asyncio.TimeoutError:
+                # Kill the process if it times out
+                try:
+                    process.kill()
+                    await process.wait()
+                except:
+                    pass
+                
+                error_msg = f"Reload command timed out after 30 seconds"
+                self.logger.error(error_msg)
+                return False, "", error_msg
+        
+        except Exception as e:
+            error_msg = f"Exception executing reload: {str(e)}"
+            self.logger.error(error_msg)
+            return False, "", error_msg
+
+
+    # Additional helper method for comprehensive service management
+    async def _cmd_service(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /service command for comprehensive service management (admin only)"""
+        self.recovery_manager.update_last_update_id(update.update_id)
+        
+        if not self._is_admin(update.effective_chat.id):
+            await update.message.reply_text("🔒 Admin command only")
+            return
+        
+        args = context.args
+        
+        if not args or args[0] == "info":
+            # Show comprehensive service information
+            try:
+                # Get service status
+                success, status_output, _ = await self._execute_systemctl_command("status")
+                
+                # Get system information
+                import platform
+                import psutil
+                import os
+                
+                # Get current user and process info
+                current_user = os.getenv('USER', 'unknown')
+                current_pid = os.getpid()
+                
+                # Get memory and CPU usage
+                try:
+                    process = psutil.Process(current_pid)
+                    cpu_percent = process.cpu_percent()
+                    memory_info = process.memory_info()
+                    memory_mb = memory_info.rss / 1024 / 1024
+                except:
+                    cpu_percent = 0
+                    memory_mb = 0
+                
+                info_msg = (
+                    f"🔧 **TeleFrame Service Information**\n\n"
+                    f"**Current Process:**\n"
+                    f"• PID: {current_pid}\n"
+                    f"• User: {current_user}\n"
+                    f"• CPU Usage: {cpu_percent:.1f}%\n"
+                    f"• Memory Usage: {memory_mb:.1f} MB\n\n"
+                    f"**System:**\n"
+                    f"• Platform: {platform.system()} {platform.release()}\n"
+                    f"• Python: {platform.python_version()}\n"
+                    f"• Uptime: {self._get_uptime()}\n\n"
+                    f"**Service Status:**\n"
+                    f"```\n{status_output[:800]}\n```"
+                )
+                
+                await update.message.reply_text(info_msg, parse_mode='Markdown')
+                
+            except Exception as e:
+                await update.message.reply_text(f"❌ Error getting service info: {e}")
+        
+        elif args[0] == "logs":
+            # Show recent logs
+            try:
+                log_lines = int(args[1]) if len(args) > 1 else 20
+                log_lines = min(max(log_lines, 5), 50)  # Limit between 5-50 lines
+                
+                process = await asyncio.create_subprocess_exec(
+                    "journalctl", "-u", "teleframe", "--no-pager", f"--lines={log_lines}",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=15.0)
+                
+                if process.returncode == 0:
+                    logs = stdout.decode('utf-8')
+                    
+                    # Truncate if too long for Telegram
+                    if len(logs) > 3500:
+                        logs = logs[-3500:]
+                        logs = "...\n" + logs[logs.find('\n') + 1:]
+                    
+                    log_msg = f"📋 **Recent Service Logs ({log_lines} lines)**\n\n```\n{logs}\n```"
+                    await update.message.reply_text(log_msg, parse_mode='Markdown')
+                else:
+                    error = stderr.decode('utf-8')
+                    await update.message.reply_text(f"❌ Error getting logs: {error}")
+                    
+            except asyncio.TimeoutError:
+                await update.message.reply_text("❌ Timeout getting logs")
+            except Exception as e:
+                await update.message.reply_text(f"❌ Error: {e}")
+        
+        else:
+            await update.message.reply_text(
+                "❓ **Service Commands:**\n\n"
+                "`/service` or `/service info` - Service information\n"
+                "`/service logs [lines]` - Show recent logs\n\n"
+                "**Note:** Use `/restart` for service control commands.",
+                parse_mode='Markdown'
+            )
+
+    def _get_uptime(self) -> str:
+        """Get bot uptime as readable string"""
+        uptime_seconds = int(time.time() - self.startup_time)
+        hours = uptime_seconds // 3600
+        minutes = (uptime_seconds % 3600) // 60
+        seconds = uptime_seconds % 60
+        
+        if hours > 0:
+            return f"{hours}h {minutes}m {seconds}s"
+        elif minutes > 0:
+            return f"{minutes}m {seconds}s"
+        else:
+            return f"{seconds}s"
+
     
     async def _cmd_monitor(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /monitor command (admin only)"""
