@@ -510,6 +510,7 @@ class TeleFrameBot:
             '/order': self._cmd_order,
             '/optimize': self._cmd_optimize,
             '/compression': self._cmd_compression,
+            '/seen': self._cmd_seen,
         }
         
         handler = command_handlers.get(command)
