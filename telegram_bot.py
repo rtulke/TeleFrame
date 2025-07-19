@@ -1062,11 +1062,11 @@ class TeleFrameBot:
         
         # Log admin action BEFORE execution
         security_logger = logging.getLogger("teleframe.security")
-        security_logger.warning(f"Service reload requested by admin {admin_id} ({admin_name})")
+        security_logger.warning(f"Service restart requested by admin {admin_id} ({admin_name})")
         
         # Send initial message
         status_message = await update.message.reply_text(
-            f"🔄 **Reloading TeleFrame Service**\n\n"
+            f"🔄 **Restart TeleFrame Service**\n\n"
             f"⏳ Please wait...",
             parse_mode='Markdown'
         )
@@ -1078,8 +1078,8 @@ class TeleFrameBot:
             if success:
                 # Success message
                 success_msg = (
-                    f"✅ **TeleFrame Service Reloaded**\n\n"
-                    f"📡 TeleFrame has been gracefully reloaded.\n"
+                    f"✅ **TeleFrame Service Restarted**\n\n"
+                    f"📡 TeleFrame has been gracefully restarted.\n"
                     f"• Configuration refreshed\n"
                     f"• Bot connection maintained\n"
                     f"• No data loss\n\n"
@@ -1090,13 +1090,13 @@ class TeleFrameBot:
                 await status_message.edit_text(success_msg, parse_mode='Markdown')
                 
                 # Log success
-                self.logger.info(f"Service reload executed successfully by admin {admin_id}")
-                security_logger.info(f"Service reload completed successfully by admin {admin_id}")
+                self.logger.info(f"Service restart executed successfully by admin {admin_id}")
+                security_logger.info(f"Service restart completed successfully by admin {admin_id}")
                 
             else:
                 # Error message
                 error_msg = (
-                    f"❌ **Service Reload Failed**\n\n"
+                    f"❌ **Service Restart Failed**\n\n"
                     f"**Error Details:**\n"
                     f"```\n{error[:500]}\n```\n\n"
                     f"**Possible Causes:**\n"
@@ -1106,24 +1106,24 @@ class TeleFrameBot:
                     f"**Troubleshooting:**\n"
                     f"• Check service status: `systemctl status teleframe`\n"
                     f"• Check logs: `journalctl -u teleframe -f`\n"
-                    f"• Try manual reload: `sudo systemctl reload teleframe`"
+                    f"• Try manual restart: `sudo systemctl restart teleframe`"
                 )
                 
                 await status_message.edit_text(error_msg, parse_mode='Markdown')
                 
                 # Log error
-                self.logger.error(f"Service reload failed: {error}")
-                security_logger.error(f"Service reload failed for admin {admin_id}: {error}")
+                self.logger.error(f"Service restart failed: {error}")
+                security_logger.error(f"Service restart failed for admin {admin_id}: {error}")
         
         except Exception as e:
             # Exception handling
             exception_msg = (
-                f"💥 **Critical Error During Reload**\n\n"
+                f"💥 **Critical Error During Restart**\n\n"
                 f"**Exception:** `{str(e)}`\n\n"
                 f"🔧 **Emergency Actions:**\n"
                 f"• SSH to server and check: `sudo systemctl status teleframe`\n"
                 f"• Check logs: `sudo journalctl -u teleframe --since '5 minutes ago'`\n"
-                f"• Manual reload: `sudo systemctl reload teleframe`"
+                f"• Manual reload: `sudo systemctl restart teleframe`"
             )
             
             try:
@@ -1134,11 +1134,11 @@ class TeleFrameBot:
             
             # Critical error logging
             self.logger.error(f"Critical error in restart command: {e}")
-            security_logger.error(f"Critical error during service reload by admin {admin_id}: {e}")
+            security_logger.error(f"Critical error during service restart by admin {admin_id}: {e}")
 
 
     async def _execute_systemctl_reload(self) -> tuple[bool, str, str]:
-        """Execute systemctl reload command with proper error handling"""
+        """Execute systemctl restart command with proper error handling"""
         try:
             cmd_array = ["sudo", "systemctl", "restart", "teleframe"]
             
@@ -1163,10 +1163,10 @@ class TeleFrameBot:
                 
                 # Check return code
                 if process.returncode == 0:
-                    self.logger.debug(f"Reload successful. Output: {stdout_text}")
+                    self.logger.debug(f"Restart successful. Output: {stdout_text}")
                     return True, stdout_text, stderr_text
                 else:
-                    self.logger.warning(f"Reload failed with code {process.returncode}. Error: {stderr_text}")
+                    self.logger.warning(f"Restart failed with code {process.returncode}. Error: {stderr_text}")
                     return False, stdout_text, stderr_text
                     
             except asyncio.TimeoutError:
@@ -1177,12 +1177,12 @@ class TeleFrameBot:
                 except:
                     pass
                 
-                error_msg = f"Reload command timed out after 30 seconds"
+                error_msg = f"Restart command timed out after 30 seconds"
                 self.logger.error(error_msg)
                 return False, "", error_msg
         
         except Exception as e:
-            error_msg = f"Exception executing reload: {str(e)}"
+            error_msg = f"Exception executing restart: {str(e)}"
             self.logger.error(error_msg)
             return False, "", error_msg
 
